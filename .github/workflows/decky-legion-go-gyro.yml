@@ -1,0 +1,42 @@
+name: Legion Go Gyro plugin
+
+on:
+  push:
+    paths:
+      - "decky-legion-go-gyro/**"
+      - ".github/workflows/decky-legion-go-gyro.yml"
+  pull_request:
+    paths:
+      - "decky-legion-go-gyro/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: decky-legion-go-gyro
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Backend tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Build and package
+        run: bash scripts/package.sh
+      - name: Typecheck
+        run: pnpm run typecheck
+      - uses: actions/upload-artifact@v4
+        with:
+          name: decky-legion-go-gyro
+          path: decky-legion-go-gyro/release/decky-legion-go-gyro.zip

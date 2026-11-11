@@ -1,0 +1,11 @@
+{
+  "name": "Legion Go Gyro",
+  "author": "Legion Go Gyro contributors",
+  "flags": ["root"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["legion-go", "gyro", "motion", "emulation", "root"],
+    "description": "Per-controller gyro for the Lenovo Legion Go: exposes the left controller, the right controller and the whole handheld as separate DSU (cemuhook) motion devices for Dolphin, Ryujinx, Eden, Cemu and other emulators.",
+    "image": "https://opengraph.githubassets.com/1/SteamDeckHomebrew/PluginLoader"
+  }
+}
