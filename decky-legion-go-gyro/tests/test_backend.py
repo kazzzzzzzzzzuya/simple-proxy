@@ -345,6 +345,9 @@ class Settings(unittest.TestCase):
         self.assertEqual(cfg.sanitize(d), d)
         self.assertEqual(d["slots"]["combined"]["source"], "auto")
         self.assertNotIn("source", d["slots"]["left"])
+        self.assertIs(d["advanced"], False)
+        self.assertIs(cfg.sanitize({"advanced": True})["advanced"], True)
+        self.assertIs(cfg.sanitize({"advanced": "yes"})["advanced"], False)
 
     def test_sanitize_rejects_garbage(self):
         d = cfg.sanitize({
@@ -781,10 +784,27 @@ class EndToEnd(unittest.TestCase):
         # Slot 0 resolves to the sensor behind it
         self.assertEqual(self.svc.request_calibration("combined"), "right")
 
-        # Reset wipes tuning and calibration
-        self.svc.update_settings({"slots": {"right": {"rotation": 180}}})
+        # Calibrating everything at once covers both streaming controllers
+        self.assertEqual(self.svc.request_calibration_all(), ["left", "right"])
+        serial = self.svc.calibration_state("right")[1]
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            self.pad.send(**kw)
+            time.sleep(0.008)
+            if self.svc.calibration_state("right")[1] != serial:
+                break
+        self.assertEqual(self.svc.calibration_state("right")[2], "ok")
+        self.assertEqual(self.svc.calibration_state("left")[2], "ok")
+
+        # Reset wipes tuning and calibration but keeps the panel layout
+        self.svc.update_settings({"advanced": True,
+                                  "slots": {"right": {"rotation": 180}}})
         out = self.svc.reset_settings()
         self.assertEqual(out["slots"]["right"]["rotation"], 0)
+        self.assertIs(out["advanced"], True)
+        expected = self.svc.get_defaults()
+        expected["advanced"] = True
+        self.assertEqual(out, expected)
         self._wait(lambda: not cfg.load(self.path)["calibration"]["left"]["calibrated"])
 
     def test_tablet_source(self):

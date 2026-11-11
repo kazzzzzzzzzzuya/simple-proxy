@@ -31,10 +31,25 @@ so an emulator can use a slot as a complete controller if you want.
 
 It needs no further setup: once loaded it finds the controllers, switches
 their sensors on and starts the server on `127.0.0.1:26760`. Move a
-controller and the Pitch / Yaw / Roll bars in the panel move with it.
+controller and its bar in the panel moves with it.
 
-Lay each controller on a table once and press **Calibrate (keep still)**.
-After that, drift is removed automatically whenever a controller rests.
+Lay the controllers on a table once and press **Calibrate**. After that,
+drift is removed automatically whenever a controller rests.
+
+## Simple and advanced view
+
+The panel opens in the **simple view**: one on/off switch, a status line
+and motion bar per controller, one Calibrate button and the address to
+type into your emulator. Everything runs on the default settings.
+
+Turn on **Advanced options** (bottom of the panel) for per-slot tuning,
+the handheld motion source and the server options described below. The
+choice is remembered.
+
+Switching back to the simple view only hides those options – anything you
+changed stays in effect. When that is the case the simple view says so and
+offers **Use default settings**, which puts every option back to default
+in one tap (your calibration is kept).
 
 ## Emulator setup
 
@@ -77,7 +92,7 @@ pointing at the screen.
 Any emulator with a DSU / CemuHook client works the same way: add the
 server and pick the slot.
 
-## Settings
+## Settings (advanced view)
 
 Per slot:
 

@@ -36,6 +36,8 @@ def defaults():
     return {
         "version": 1,
         "enabled": True,
+        # UI only: False shows the simple panel, True all options.
+        "advanced": False,
         "port": DEFAULT_PORT,
         "lan": False,
         "auto_calibrate": True,
@@ -63,6 +65,7 @@ def sanitize(data):
         return out
 
     out["enabled"] = _flag(data.get("enabled"), out["enabled"])
+    out["advanced"] = _flag(data.get("advanced"), out["advanced"])
     out["lan"] = _flag(data.get("lan"), out["lan"])
     out["auto_calibrate"] = _flag(data.get("auto_calibrate"), out["auto_calibrate"])
     port = data.get("port")

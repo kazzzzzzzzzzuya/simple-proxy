@@ -18,6 +18,8 @@ export interface SlotSettings {
 
 export interface Settings {
   enabled: boolean;
+  /** Panel layout only: false = simple view, true = all options. */
+  advanced: boolean;
   port: number;
   lan: boolean;
   auto_calibrate: boolean;
@@ -63,6 +65,8 @@ export interface Status {
 export interface State {
   version: string;
   settings: Settings;
+  /** Factory settings, used to tell whether anything was customised. */
+  defaults: Settings;
   status: Status;
 }
 
@@ -77,4 +81,5 @@ export const getState = callable<[], State>("get_state");
 export const getStatus = callable<[], Status>("get_status");
 export const setSettings = callable<[patch: SettingsPatch], Settings>("set_settings");
 export const resetSettings = callable<[], Settings>("reset_settings");
+export const calibrateAll = callable<[], Record<string, CalibrationResult>>("calibrate_all");
 export const calibrate = callable<[target: SlotName], CalibrationResult>("calibrate");

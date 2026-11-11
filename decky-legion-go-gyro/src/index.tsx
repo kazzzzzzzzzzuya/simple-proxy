@@ -14,6 +14,7 @@ import { MdScreenRotation } from "react-icons/md";
 
 import {
   calibrate,
+  calibrateAll,
   getState,
   getStatus,
   resetSettings,
@@ -311,6 +312,60 @@ const SlotSection: FC<SlotSectionProps> = ({
   );
 };
 
+/** One bar showing how much a device is being moved (simple view). */
+const ActivityBar: FC<{ gyro: [number, number, number]; active: boolean }> = ({ gyro, active }) => {
+  const speed = Math.sqrt(gyro[0] * gyro[0] + gyro[1] * gyro[1] + gyro[2] * gyro[2]);
+  const width = active ? Math.sqrt(Math.min(1, speed / 300)) * 100 : 0;
+  return (
+    <div
+      style={{
+        height: "6px",
+        width: "100%",
+        borderRadius: "3px",
+        background: "rgba(255,255,255,0.12)",
+        overflow: "hidden",
+      }}
+    >
+      <div style={{ height: "100%", width: `${width}%`, background: "#1a9fff" }} />
+    </div>
+  );
+};
+
+function simpleControllerLine(st: SlotStatus, serviceOn: boolean): string {
+  if (!serviceOn) return "Gyro is off";
+  if (!st.controller_connected) return "Not connected – press a button on it to wake it";
+  const where = st.attached ? "Attached" : "Detached";
+  const batt = st.battery != null ? ` · ${st.battery}%` : "";
+  if (!st.connected) return `${where}${batt} · turned off in Advanced options`;
+  return `${where}${batt} · ${st.live ? "motion working" : "starting sensor…"}`;
+}
+
+function overallLine(st: Status): string {
+  if (!st.enabled) return "Off – controller motion sensors are powered down.";
+  if (!st.device.found) return st.device.error ?? "Looking for the controllers…";
+  if (!st.server.listening) return st.server.error ?? "Starting…";
+  if (st.server.clients > 0) {
+    return st.server.clients === 1
+      ? "Working – 1 emulator is using the motion data."
+      : `Working – ${st.server.clients} emulators are using the motion data.`;
+  }
+  return "Ready – waiting for an emulator to connect.";
+}
+
+/** The settings a user can change in the advanced view, as a patch. */
+function tuningOf(s: Settings): SettingsPatch {
+  return {
+    port: s.port,
+    lan: s.lan,
+    auto_calibrate: s.auto_calibrate,
+    slots: { combined: s.slots.combined, left: s.slots.left, right: s.slots.right },
+  };
+}
+
+function isCustomised(s: Settings, defaults: Settings): boolean {
+  return JSON.stringify(tuningOf(applyPatch(defaults, tuningOf(s)))) !== JSON.stringify(tuningOf(defaults));
+}
+
 function controllerLine(st: Status): string {
   if (!st.enabled) return "Off";
   if (!st.device.found) return st.device.error ?? "Searching…";
@@ -327,6 +382,8 @@ function serverLine(st: Status): string {
 
 const Content: FC = () => {
   const [settings, setLocalSettings] = useState<Settings | null>(null);
+  const [defaults, setDefaults] = useState<Settings | null>(null);
+  const [calibrating, setCalibrating] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [version, setVersion] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -363,6 +420,7 @@ const Content: FC = () => {
       .then((state) => {
         if (!alive) return;
         setLocalSettings(state.settings);
+        setDefaults(state.defaults);
         setStatus(state.status);
         setVersion(state.version);
       })
@@ -416,6 +474,126 @@ const Content: FC = () => {
     }
   };
 
+  const onCalibrateAll = async () => {
+    setCalibrating(true);
+    try {
+      const results = Object.values(await calibrateAll());
+      const body =
+        results.length === 0
+          ? "No controller is sending motion yet."
+          : results.every((r) => r === "ok")
+            ? "Calibration saved."
+            : results.some((r) => r === "moved")
+              ? "Something moved. Lay the controllers on a table and try again."
+              : "A motion sensor stopped sending data. Try again.";
+      toaster.toast({ title: PLUGIN_NAME, body });
+    } catch (e) {
+      toaster.toast({ title: PLUGIN_NAME, body: `Calibration failed: ${e}` });
+    } finally {
+      setCalibrating(false);
+    }
+  };
+
+  const customised = defaults != null && isCustomised(settings, defaults);
+  const anyLive = settings.enabled && (status.slots.left.live || status.slots.right.live);
+
+  const modeToggle = (
+    <PanelSectionRow>
+      <ToggleField
+        label="Advanced options"
+        description={
+          settings.advanced
+            ? "Showing every option. Turn off for the simple view."
+            : "Show per-controller tuning, motion source and server options."
+        }
+        checked={settings.advanced}
+        onChange={(v) => update({ advanced: v })}
+      />
+    </PanelSectionRow>
+  );
+
+  if (!settings.advanced) {
+    return (
+      <>
+        <PanelSection title="Gyro">
+          <PanelSectionRow>
+            <ToggleField
+              label="Controller gyro"
+              description={overallLine(status)}
+              checked={settings.enabled}
+              onChange={(v) => update({ enabled: v })}
+            />
+          </PanelSectionRow>
+          {error && (
+            <PanelSectionRow>
+              <Field label="Error" description={error} padding="compact" />
+            </PanelSectionRow>
+          )}
+          {(["right", "left"] as const).map((name) => (
+            <PanelSectionRow key={name}>
+              <Field
+                label={name === "right" ? "Right controller" : "Left controller"}
+                description={simpleControllerLine(status.slots[name], settings.enabled)}
+                childrenLayout="below"
+                padding="compact"
+              >
+                <ActivityBar
+                  gyro={status.slots[name].gyro}
+                  active={settings.enabled && status.slots[name].connected && status.slots[name].live}
+                />
+              </Field>
+            </PanelSectionRow>
+          ))}
+          <PanelSectionRow>
+            <ButtonItem
+              layout="below"
+              disabled={calibrating || !anyLive}
+              description="Fixes drift. Lay the controllers on a table, then press."
+              onClick={onCalibrateAll}
+            >
+              {calibrating ? "Calibrating – keep them still…" : "Calibrate"}
+            </ButtonItem>
+          </PanelSectionRow>
+          {customised && (
+            <PanelSectionRow>
+              <ButtonItem
+                layout="below"
+                description="Some advanced options were changed and are still in effect."
+                onClick={() => defaults && update(tuningOf(defaults))}
+              >
+                Use default settings
+              </ButtonItem>
+            </PanelSectionRow>
+          )}
+        </PanelSection>
+
+        <PanelSection title="In your emulator">
+          <PanelSectionRow>
+            <Field
+              childrenLayout="below"
+              bottomSeparator="none"
+              description={
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <div>
+                    Add a DSU / CemuHook motion server:{" "}
+                    <b>
+                      127.0.0.1 port {status.server.port}
+                    </b>
+                  </div>
+                  <div>Slot 1 = left controller</div>
+                  <div>Slot 2 = right controller</div>
+                  <div>Slot 0 = whole handheld</div>
+                </div>
+              }
+            />
+          </PanelSectionRow>
+        </PanelSection>
+
+        <PanelSection>{modeToggle}</PanelSection>
+      </>
+    );
+  }
+
   const slotProps = (name: SlotName) => ({
     name,
     settings: settings.slots[name],
@@ -442,6 +620,7 @@ const Content: FC = () => {
         <PanelSectionRow>
           <Field label="Motion server (DSU)" description={serverLine(status)} padding="compact" />
         </PanelSectionRow>
+        {modeToggle}
         {error && (
           <PanelSectionRow>
             <Field label="Error" description={error} padding="compact" />

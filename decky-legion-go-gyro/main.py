@@ -60,6 +60,7 @@ class Plugin:
         return {
             "version": __version__,
             "settings": svc.get_settings(),
+            "defaults": svc.get_defaults(),
             "status": svc.get_status(),
         }
 
@@ -82,10 +83,28 @@ class Plugin:
         name = svc.request_calibration(target)
         if name is None:
             return "nodata"
-        _, serial, _ = svc.calibration_state(name)
+        return (await Plugin._await_calibration(svc, [name]))[name]
+
+    async def calibrate_all(self):
+        """Calibrate every sensor that is currently sending data.
+
+        Returns {sensor name: result}; empty if no sensor is active.
+        """
+        svc = Plugin._svc()
+        return await Plugin._await_calibration(svc, svc.request_calibration_all())
+
+    @staticmethod
+    async def _await_calibration(svc, names):
+        serials = {n: svc.calibration_state(n)[1] for n in names}
+        results = {}
         for _ in range(60):
+            if len(results) == len(names):
+                break
             await asyncio.sleep(0.1)
-            _, now_serial, result = svc.calibration_state(name)
-            if now_serial != serial:
-                return result or "nodata"
-        return "nodata"
+            for n in names:
+                _, serial, result = svc.calibration_state(n)
+                if n not in results and serial != serials[n]:
+                    results[n] = result or "nodata"
+        for n in names:
+            results.setdefault(n, "nodata")
+        return results

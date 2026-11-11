@@ -177,9 +177,15 @@ class GyroService(object):
         self._wake()
         return out
 
+    def get_defaults(self):
+        return self._export_settings(cfg.defaults())
+
     def reset_settings(self):
         with self._lock:
+            base = self._pending_settings or self._settings
             new = cfg.defaults()
+            # The panel layout is a view preference, not a setting to reset.
+            new["advanced"] = base["advanced"]
             self._pending_settings = new
             out = self._export_settings(new)
         self._commands.append(("reset_calibration", None))
@@ -203,6 +209,17 @@ class GyroService(object):
         self._commands.append(("calibrate", name))
         self._wake()
         return name
+
+    def request_calibration_all(self):
+        """Start a manual calibration of every sensor that is streaming.
+        Returns the list of sensor names being calibrated."""
+        now = time.monotonic()
+        names = [n for n in cfg.SENSOR_NAMES if self.sensors[n].is_live(now)]
+        for name in names:
+            self._commands.append(("calibrate", name))
+        if names:
+            self._wake()
+        return names
 
     def calibration_state(self, sensor_name):
         s = self.sensors[sensor_name]
