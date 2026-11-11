@@ -301,33 +301,84 @@ class MotionMath(unittest.TestCase):
         self._feed(s, 500, (0, 0, 0), (0, 0, 0))  # no gravity: not plausible
         self.assertFalse(s.cal.calibrated)
 
+    def _shaky(self, s, n, start, amp_dps, ts0=0, bias_dps=0.0):
+        """Feed n samples of a device wobbling +-amp_dps around a bias."""
+        now = start
+        for i in range(n):
+            side = legion_hid.SideSample()
+            side.connected = True
+            side.imu_ts = (ts0 + i) & 0xFF
+            wobble = amp_dps * math.sin(i / 3.0)
+            side.gyro = (int((bias_dps + wobble) * DPS_LSB), 0, 0)
+            side.accel = (0, int(G_LSB), 0)
+            s.feed_controller(side, now, False)
+            now += 0.008
+        return now
+
     def test_manual_calibration(self):
         s = motion.Sensor("right")
         s.start_manual(0.0)
         self.assertTrue(s.calibrating)
-        end = self._feed(s, 300, (int(5 * DPS_LSB), 0, 0), (0, int(G_LSB), 0),
-                         auto=False)
-        s.poll_manual(end)
+        self._feed(s, 300, (int(5 * DPS_LSB), 0, 0), (0, int(G_LSB), 0), auto=False)
+        # Finishes by itself as soon as one calm second was seen
         self.assertFalse(s.calibrating)
         self.assertEqual(s.manual_result, "ok")
         self.assertAlmostEqual(s.cal.bias[0], 5.0, delta=0.1)
 
+    def test_manual_calibration_without_data(self):
+        s = motion.Sensor("right")
         s.start_manual(10.0)
         s.poll_manual(13.0)
+        self.assertTrue(s.calibrating)            # still waiting
+        s.poll_manual(10.0 + motion.MANUAL_TIMEOUT_S + 0.1)
         self.assertEqual(s.manual_result, "nodata")
 
+    def test_manual_calibration_while_swinging(self):
+        s = motion.Sensor("right")
         s.start_manual(20.0)
-        now = 20.0
-        for i in range(300):
-            side = legion_hid.SideSample()
-            side.connected = True
-            side.imu_ts = i & 0xFF
-            side.gyro = (int(100 * DPS_LSB) * (i % 2), 0, 0)
-            side.accel = (0, int(G_LSB), 0)
-            s.feed_controller(side, now, False)
-            now += 0.008
-        s.poll_manual(now)
+        end = self._shaky(s, 800, 20.0, 100.0)
+        self.assertTrue(s.calibrating)
+        s.poll_manual(end)
         self.assertEqual(s.manual_result, "moved")
+        self.assertFalse(s.cal.calibrated)
+
+    def test_manual_calibration_survives_button_press(self):
+        # Pressing "Calibrate" shakes the device for a moment. The
+        # calibration must wait that out instead of failing.
+        s = motion.Sensor("right")
+        s.start_manual(0.0)
+        end = self._shaky(s, 150, 0.0, 60.0, bias_dps=2.0)       # 1.2 s nudge
+        self.assertTrue(s.calibrating)
+        self._shaky(s, 200, end, 0.0, ts0=150, bias_dps=2.0)     # then calm
+        self.assertEqual(s.manual_result, "ok")
+        self.assertAlmostEqual(s.cal.bias[0], 2.0, delta=0.1)
+
+    def test_manual_calibration_in_hand(self):
+        # Held reasonably still in the hand (a little tremor) is enough
+        s = motion.Sensor("right")
+        s.start_manual(0.0)
+        self._shaky(s, 300, 0.0, 1.5, bias_dps=-3.0)
+        self.assertEqual(s.manual_result, "ok")
+        self.assertAlmostEqual(s.cal.bias[0], -3.0, delta=0.3)
+
+    def test_calibration_ignores_sensor_glitches(self):
+        for manual in (True, False):
+            s = motion.Sensor("left")
+            if manual:
+                s.start_manual(0.0)
+            now = 0.0
+            for i in range(500):
+                side = legion_hid.SideSample()
+                side.connected = True
+                side.imu_ts = i & 0xFF
+                spike = 9000 if i % 40 == 7 else 0     # wild sample now and then
+                side.gyro = (int(2 * DPS_LSB) + spike, 0, 0)
+                side.accel = (0, int(G_LSB) + spike, 0)
+                s.feed_controller(side, now, not manual)
+                now += 0.008
+            self.assertTrue(s.cal.calibrated, manual)
+            self.assertAlmostEqual(s.cal.bias[0], 2.0, delta=0.1)
+            self.assertAlmostEqual(s.cal.accel_scale, 1.0, delta=0.01)
 
     def test_calibration_roundtrip(self):
         c = motion.Calibration((1.5, -2.5, 0.25), 1.1, True)

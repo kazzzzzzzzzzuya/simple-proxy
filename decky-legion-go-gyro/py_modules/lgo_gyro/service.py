@@ -128,6 +128,7 @@ class GyroService(object):
         self._last_input_key = {}
         self._last_sent = [0.0] * 4
         self._cal_saved = 0.0
+        self._manual_serials = [0] * len(cfg.SENSOR_NAMES)
         self._io_open = False
         self._model = _dmi_model()
         self._status = self._build_status(time.monotonic())
@@ -713,7 +714,8 @@ class GyroService(object):
                     side.we_enabled = False
 
         # Manual calibrations, stale motion, keep-alives
-        saved = False
+        saved = self._manual_serials != [
+            s.manual_serial for s in self.sensors.values()]
         for name, sensor in self.sensors.items():
             had = sensor.manual_serial
             sensor.poll_manual(now)
@@ -736,6 +738,7 @@ class GyroService(object):
                 self._send_slot(slot, now)
 
         self._dsu.prune(now)
+        self._manual_serials = [s.manual_serial for s in self.sensors.values()]
         dirty = any(s.cal_dirty for s in self.sensors.values())
         if dirty and (saved or now - self._cal_saved >= CAL_SAVE_INTERVAL_S):
             self._save()

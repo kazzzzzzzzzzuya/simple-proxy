@@ -33,8 +33,11 @@ It needs no further setup: once loaded it finds the controllers, switches
 their sensors on and starts the server on `127.0.0.1:26760`. Move a
 controller and its bar in the panel moves with it.
 
-Lay the controllers on a table once and press **Calibrate**. After that,
-drift is removed automatically whenever a controller rests.
+Press **Calibrate** once and keep the controllers still for a second – on
+a table is best, holding them steady works too. The plugin waits up to six
+seconds for a calm moment, so the nudge from pressing the button does not
+matter. After that, drift is removed automatically whenever a controller
+rests.
 
 ## Simple and advanced view
 
@@ -98,7 +101,7 @@ Per slot:
 
 - **Enabled** – switch a slot off if you do not need it. A controller's
   sensor is only powered while something uses it.
-- **Calibrate** – measures the resting offset of that sensor (2 seconds).
+- **Calibrate** – measures the resting offset of that sensor.
 - **Sensitivity**, **Deadzone** – scale the rotation / ignore tiny motion.
 - **How it is held** – tells the plugin if you hold the controller turned
   (for example sideways) instead of upright as it sits on the tablet.
@@ -119,6 +122,8 @@ network may connect (off by default; the server is local-only).
 - **"Port 26760 is already used"** – another motion server is running
   (for example one bundled with EmuDeck). Stop it or choose another port
   here and in the emulator.
+- **Motion feels too strong or too weak in a game** – Advanced options →
+  that controller → Tuning → Sensitivity.
 - **An axis moves the wrong way** in one game – use the invert switches.
 - **Check without an emulator:** run `python3 tools/dsu_monitor.py` in a
   terminal on the device; it prints the live data of all slots.

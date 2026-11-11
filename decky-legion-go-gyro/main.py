@@ -97,7 +97,7 @@ class Plugin:
     async def _await_calibration(svc, names):
         serials = {n: svc.calibration_state(n)[1] for n in names}
         results = {}
-        for _ in range(60):
+        for _ in range(90):
             if len(results) == len(names):
                 break
             await asyncio.sleep(0.1)

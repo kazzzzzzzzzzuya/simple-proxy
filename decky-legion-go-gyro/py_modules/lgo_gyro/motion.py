@@ -11,6 +11,7 @@ Accelerations are in g, angular rates in degrees per second, rotations are
 right handed around the axis.
 """
 
+import collections
 import math
 
 from .legion_hid import ACCEL_G_PER_LSB, GYRO_DPS_PER_LSB, IMU_TICK_US
@@ -20,14 +21,19 @@ ROTATIONS = (0, 90, 180, 270)
 # ---- stillness detection / calibration tuning ----------------------------
 AUTO_WINDOW_S = 1.5
 AUTO_MIN_SAMPLES = 40
-AUTO_GYRO_P2P_DPS = 1.2
-AUTO_ACCEL_P2P_G = 0.03
+AUTO_GYRO_SPREAD_DPS = 1.5
+AUTO_ACCEL_SPREAD_G = 0.03
 AUTO_BIAS_LIMIT_DPS = 6.0
 
-MANUAL_WINDOW_S = 2.0
-MANUAL_MIN_SAMPLES = 20
-MANUAL_GYRO_P2P_DPS = 8.0
-MANUAL_ACCEL_P2P_G = 0.15
+# Manual calibration watches for up to MANUAL_TIMEOUT_S and finishes as
+# soon as it has seen one calm MANUAL_WINDOW_S. Pressing the button always
+# nudges the device, so the first moment is never held against the user,
+# and the limits are loose enough to succeed while it is held in the hand.
+MANUAL_WINDOW_S = 1.0
+MANUAL_TIMEOUT_S = 6.0
+MANUAL_MIN_SAMPLES = 15
+MANUAL_GYRO_SPREAD_DPS = 5.0
+MANUAL_ACCEL_SPREAD_G = 0.10
 
 ACCEL_SCALE_MIN = 0.75
 ACCEL_SCALE_MAX = 1.35
@@ -100,7 +106,13 @@ class Calibration(object):
 
 
 class _Window(object):
-    """Collects samples and reports mean / peak-to-peak per axis."""
+    """Collects samples and reports robust statistics per axis.
+
+    Real sensors glitch: a single wild sample must neither spoil the
+    average nor make a resting device look like it moved. So the spread is
+    the range that holds the middle 80 % of the samples and the average
+    ignores the top and bottom 10 %.
+    """
 
     def __init__(self):
         self.reset(0.0)
@@ -108,31 +120,34 @@ class _Window(object):
     def reset(self, now):
         self.start = now
         self.n = 0
-        self.sum = [0.0] * 6
-        self.lo = [float("inf")] * 6
-        self.hi = [float("-inf")] * 6
+        self.axes = [[], [], [], [], [], []]
 
     def add(self, accel, gyro):
-        vals = (accel[0], accel[1], accel[2], gyro[0], gyro[1], gyro[2])
-        s, lo, hi = self.sum, self.lo, self.hi
-        for i in range(6):
-            v = vals[i]
-            s[i] += v
-            if v < lo[i]:
-                lo[i] = v
-            if v > hi[i]:
-                hi[i] = v
+        ax = self.axes
+        ax[0].append(accel[0])
+        ax[1].append(accel[1])
+        ax[2].append(accel[2])
+        ax[3].append(gyro[0])
+        ax[4].append(gyro[1])
+        ax[5].append(gyro[2])
         self.n += 1
 
-    def mean(self):
-        n = float(self.n or 1)
-        return [v / n for v in self.sum]
-
-    def p2p_accel(self):
-        return max(self.hi[i] - self.lo[i] for i in range(3))
-
-    def p2p_gyro(self):
-        return max(self.hi[i] - self.lo[i] for i in range(3, 6))
+    def stats(self):
+        """Returns (means[6], accel spread, gyro spread)."""
+        means = []
+        spreads = []
+        for values in self.axes:
+            v = sorted(values)
+            n = len(v)
+            if n == 0:
+                means.append(0.0)
+                spreads.append(0.0)
+                continue
+            cut = n // 10
+            core = v[cut: n - cut] or v
+            means.append(sum(core) / len(core))
+            spreads.append(core[-1] - core[0])
+        return means, max(spreads[:3]), max(spreads[3:])
 
 
 class Sensor(object):
@@ -160,6 +175,8 @@ class Sensor(object):
         self._auto = _Window()
         self._manual = None
         self._manual_deadline = 0.0
+        self._manual_seen = 0
+        self._manual_checked = 0.0
         self.manual_result = None  # None | "ok" | "moved" | "nodata"
         self.manual_serial = 0
 
@@ -231,8 +248,8 @@ class Sensor(object):
 
     def _store(self, accel, gyro, now, auto_calibrate):
         if self._manual is not None:
-            self._manual.add(accel, gyro)
-        if auto_calibrate and self._manual is None:
+            self._manual_step(accel, gyro, now)
+        elif auto_calibrate:
             self._auto_step(accel, gyro, now)
 
         cal = self.cal
@@ -260,16 +277,43 @@ class Sensor(object):
         w.add(accel, gyro)
         if now - w.start < AUTO_WINDOW_S:
             return
-        if (
-            w.n >= AUTO_MIN_SAMPLES
-            and w.p2p_gyro() < AUTO_GYRO_P2P_DPS
-            and w.p2p_accel() < AUTO_ACCEL_P2P_G
-        ):
-            self._apply(w, strict=True)
+        if w.n >= AUTO_MIN_SAMPLES:
+            means, accel_spread, gyro_spread = w.stats()
+            if (gyro_spread < AUTO_GYRO_SPREAD_DPS
+                    and accel_spread < AUTO_ACCEL_SPREAD_G):
+                self._apply(means, strict=True)
         w.reset(now)
 
-    def _apply(self, window, strict):
-        m = window.mean()
+    def _manual_step(self, accel, gyro, now):
+        # Sliding window over the last MANUAL_WINDOW_S, re-checked ten
+        # times a second, so it locks on the moment the device settles.
+        samples = self._manual
+        samples.append((now, accel, gyro))
+        self._manual_seen += 1
+        while samples and now - samples[0][0] > MANUAL_WINDOW_S:
+            samples.popleft()
+        if now - self._manual_checked < 0.1:
+            return
+        self._manual_checked = now
+        if (len(samples) < MANUAL_MIN_SAMPLES
+                or now - samples[0][0] < MANUAL_WINDOW_S * 0.9):
+            return
+        w = _Window()
+        for _, a, g in samples:
+            w.add(a, g)
+        means, accel_spread, gyro_spread = w.stats()
+        if (gyro_spread < MANUAL_GYRO_SPREAD_DPS
+                and accel_spread < MANUAL_ACCEL_SPREAD_G
+                and self._apply(means, strict=False)):
+            self._finish_manual("ok")
+
+    def _finish_manual(self, result):
+        self._manual = None
+        self.manual_result = result
+        self.manual_serial += 1
+        self._auto.reset(0.0)
+
+    def _apply(self, m, strict):
         bias = (m[3], m[4], m[5])
         # A real gyro offset is small. Automatic calibration must never
         # mistake a slow, steady turn for sensor drift, so it only accepts
@@ -304,9 +348,10 @@ class Sensor(object):
         return self.last_sample_time > 0 and now - self.last_sample_time < LIVE_TIMEOUT_S
 
     def start_manual(self, now):
-        self._manual = _Window()
-        self._manual.reset(now)
-        self._manual_deadline = now + MANUAL_WINDOW_S
+        self._manual = collections.deque()
+        self._manual_checked = now
+        self._manual_deadline = now + MANUAL_TIMEOUT_S
+        self._manual_seen = 0
         self.manual_result = None
 
     @property
@@ -314,28 +359,16 @@ class Sensor(object):
         return self._manual is not None
 
     def poll_manual(self, now):
-        """Finish a running manual calibration once its window elapsed."""
-        w = self._manual
-        if w is None or now < self._manual_deadline:
+        """Give up on a manual calibration that never saw a calm moment."""
+        if self._manual is None or now < self._manual_deadline:
             return
-        self._manual = None
-        if w.n < MANUAL_MIN_SAMPLES:
-            self.manual_result = "nodata"
-        elif (
-            w.p2p_gyro() > MANUAL_GYRO_P2P_DPS
-            or w.p2p_accel() > MANUAL_ACCEL_P2P_G
-            or not self._apply(w, strict=False)
-        ):
-            self.manual_result = "moved"
-        else:
-            self.manual_result = "ok"
-        self.manual_serial += 1
-        self._auto.n = 0
+        self._finish_manual(
+            "nodata" if self._manual_seen < MANUAL_MIN_SAMPLES else "moved")
 
     def reset_calibration(self):
         self.cal = Calibration()
         self.cal_dirty = True
-        self._auto.n = 0
+        self._auto.reset(0.0)
 
 
 class OutputOptions(object):

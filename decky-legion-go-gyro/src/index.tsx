@@ -32,6 +32,8 @@ import {
 const PLUGIN_NAME = "Legion Go Gyro";
 const STATUS_INTERVAL_MS = 250;
 const SAVE_DEBOUNCE_MS = 250;
+/** Rotation below this (deg/s) is treated as "at rest" by the bars. */
+const REST_NOISE_DPS = 3;
 
 const SLOT_TITLES: Record<SlotName, string> = {
   right: "Right controller · slot 2",
@@ -91,8 +93,10 @@ const Meter: FC<{ label: string; value: number; active: boolean }> = ({
   active,
 }) => {
   const full = 250; // deg/s at which the bar is full
-  const frac = Math.max(-1, Math.min(1, value / full));
-  const width = Math.sqrt(Math.abs(frac)) * 50;
+  // Sensor noise of a resting controller should not make the bar twitch
+  const shown = Math.abs(value) < REST_NOISE_DPS ? 0 : value;
+  const frac = Math.max(-1, Math.min(1, shown / full));
+  const width = Math.pow(Math.abs(frac), 0.7) * 50;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px" }}>
       <div style={{ width: "34px", opacity: 0.7 }}>{label}</div>
@@ -180,7 +184,7 @@ const SlotSection: FC<SlotSectionProps> = ({
         result === "ok"
           ? "Calibration saved."
           : result === "moved"
-            ? "It moved during the measurement. Lay it on a table and try again."
+            ? "It never came to rest. Put it down or hold it still and try again."
             : "The motion sensor is not sending data yet.";
       toaster.toast({ title: SLOT_TITLES[name].split(" · ")[0], body });
     } catch (e) {
@@ -236,7 +240,7 @@ const SlotSection: FC<SlotSectionProps> = ({
             }
             onClick={onCalibrate}
           >
-            {busy ? "Calibrating – keep it still…" : "Calibrate (keep still)"}
+            {busy ? "Hold it still…" : "Calibrate (keep still)"}
           </ButtonItem>
         </PanelSectionRow>
       )}
@@ -315,7 +319,8 @@ const SlotSection: FC<SlotSectionProps> = ({
 /** One bar showing how much a device is being moved (simple view). */
 const ActivityBar: FC<{ gyro: [number, number, number]; active: boolean }> = ({ gyro, active }) => {
   const speed = Math.sqrt(gyro[0] * gyro[0] + gyro[1] * gyro[1] + gyro[2] * gyro[2]);
-  const width = active ? Math.sqrt(Math.min(1, speed / 300)) * 100 : 0;
+  const moving = Math.max(0, speed - REST_NOISE_DPS);
+  const width = active ? Math.pow(Math.min(1, moving / 300), 0.7) * 100 : 0;
   return (
     <div
       style={{
@@ -484,7 +489,7 @@ const Content: FC = () => {
           : results.every((r) => r === "ok")
             ? "Calibration saved."
             : results.some((r) => r === "moved")
-              ? "Something moved. Lay the controllers on a table and try again."
+              ? "A controller never came to rest. Put them down or hold them still and try again."
               : "A motion sensor stopped sending data. Try again.";
       toaster.toast({ title: PLUGIN_NAME, body });
     } catch (e) {
@@ -548,10 +553,10 @@ const Content: FC = () => {
             <ButtonItem
               layout="below"
               disabled={calibrating || !anyLive}
-              description="Fixes drift. Lay the controllers on a table, then press."
+              description="Fixes drift. Press, then keep the controllers still for a second – on a table or in your hands."
               onClick={onCalibrateAll}
             >
-              {calibrating ? "Calibrating – keep them still…" : "Calibrate"}
+              {calibrating ? "Hold them still…" : "Calibrate"}
             </ButtonItem>
           </PanelSectionRow>
           {customised && (

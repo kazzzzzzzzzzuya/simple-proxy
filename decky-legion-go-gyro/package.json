@@ -1,6 +1,6 @@
 {
   "name": "decky-legion-go-gyro",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Per-controller gyro (DSU motion server) for the Lenovo Legion Go on SteamOS",
   "type": "module",
   "scripts": {
