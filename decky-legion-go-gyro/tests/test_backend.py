@@ -360,6 +360,34 @@ class MotionMath(unittest.TestCase):
         self._shaky(s, 300, 0.0, 1.5, bias_dps=-3.0)
         self.assertEqual(s.manual_result, "ok")
         self.assertAlmostEqual(s.cal.bias[0], -3.0, delta=0.3)
+        self.assertIsNotNone(s.rest_noise_dps)
+
+    def test_manual_calibration_with_noisy_sensor(self):
+        # A resting sensor that is far noisier than expected (or a table
+        # that vibrates) must still calibrate: after the time is up the
+        # calmest second is used instead of demanding perfect stillness.
+        s = motion.Sensor("right")
+        s.start_manual(0.0)
+        end = self._shaky(s, 600, 0.0, 9.0, bias_dps=2.0)
+        self.assertTrue(s.calibrating)             # not calm enough to finish early
+        s.poll_manual(end)
+        self.assertEqual(s.manual_result, "ok")
+        self.assertAlmostEqual(s.cal.bias[0], 2.0, delta=0.5)
+        self.assertGreater(s.rest_noise_dps, 5.0)
+
+    def test_noisy_rest_is_auto_calibrated(self):
+        s = motion.Sensor("left")
+        now = 0.0
+        for i in range(600):
+            side = legion_hid.SideSample()
+            side.connected = True
+            side.imu_ts = i & 0xFF
+            side.gyro = (int((1.0 + 1.0 * math.sin(i * 1.7)) * DPS_LSB), 0, 0)
+            side.accel = (0, int(G_LSB * (1 + 0.015 * math.sin(i * 2.3))), 0)
+            s.feed_controller(side, now, True)
+            now += 0.008
+        self.assertTrue(s.cal.calibrated)
+        self.assertAlmostEqual(s.cal.bias[0], 1.0, delta=0.2)
 
     def test_calibration_ignores_sensor_glitches(self):
         for manual in (True, False):

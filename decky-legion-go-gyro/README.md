@@ -33,11 +33,11 @@ It needs no further setup: once loaded it finds the controllers, switches
 their sensors on and starts the server on `127.0.0.1:26760`. Move a
 controller and its bar in the panel moves with it.
 
-Press **Calibrate** once and keep the controllers still for a second – on
-a table is best, holding them steady works too. The plugin waits up to six
-seconds for a calm moment, so the nudge from pressing the button does not
-matter. After that, drift is removed automatically whenever a controller
-rests.
+Press **Calibrate** once and leave the controllers alone for a few
+seconds – on a table is best. It finishes as soon as it sees a calm second;
+if the sensors never get perfectly quiet it uses the calmest second it saw,
+so it only fails if a controller was being swung the whole time. After
+that, drift is removed automatically whenever a controller rests.
 
 ## Simple and advanced view
 

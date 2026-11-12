@@ -36,6 +36,8 @@ export interface SlotStatus {
   gyro: [number, number, number];
   calibrated: boolean;
   calibrating: boolean;
+  /** Gyro noise (deg/s) measured by the last manual calibration. */
+  rest_noise: number | null;
   controller_connected?: boolean;
   attached?: boolean;
   battery?: number | null;

@@ -5,4 +5,4 @@ controller separately, plus the tablet) and publishes them through a
 DSU / "cemuhook" motion server that emulators understand.
 """
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"

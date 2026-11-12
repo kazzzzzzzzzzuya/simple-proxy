@@ -781,6 +781,9 @@ class GyroService(object):
                 "gyro": [round(v, 1) for v in pad.motion[3:]],
                 "calibrated": bool(sensor and sensor.cal.calibrated),
                 "calibrating": bool(sensor and sensor.calibrating),
+                "rest_noise": (
+                    round(sensor.rest_noise_dps, 1)
+                    if sensor and sensor.rest_noise_dps is not None else None),
             }
             if name != "combined":
                 side = self._sides[name]

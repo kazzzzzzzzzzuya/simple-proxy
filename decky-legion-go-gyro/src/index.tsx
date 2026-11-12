@@ -184,7 +184,7 @@ const SlotSection: FC<SlotSectionProps> = ({
         result === "ok"
           ? "Calibration saved."
           : result === "moved"
-            ? "It never came to rest. Put it down or hold it still and try again."
+            ? "It was being moved the whole time. Put it down and try again."
             : "The motion sensor is not sending data yet.";
       toaster.toast({ title: SLOT_TITLES[name].split(" · ")[0], body });
     } catch (e) {
@@ -236,7 +236,11 @@ const SlotSection: FC<SlotSectionProps> = ({
             layout="below"
             disabled={busy || !showMotion || !status.live}
             description={
-              status.calibrated ? undefined : "Not calibrated yet – lay it down and calibrate once."
+              !status.calibrated
+                ? "Not calibrated yet – lay it down and calibrate once."
+                : status.rest_noise != null
+                  ? `Last calibration: sensor noise ${status.rest_noise.toFixed(1)} °/s`
+                  : undefined
             }
             onClick={onCalibrate}
           >
@@ -489,7 +493,7 @@ const Content: FC = () => {
           : results.every((r) => r === "ok")
             ? "Calibration saved."
             : results.some((r) => r === "moved")
-              ? "A controller never came to rest. Put them down or hold them still and try again."
+              ? "A controller was being moved the whole time. Put them down and try again."
               : "A motion sensor stopped sending data. Try again.";
       toaster.toast({ title: PLUGIN_NAME, body });
     } catch (e) {
@@ -553,7 +557,7 @@ const Content: FC = () => {
             <ButtonItem
               layout="below"
               disabled={calibrating || !anyLive}
-              description="Fixes drift. Press, then keep the controllers still for a second – on a table or in your hands."
+              description="Fixes drift. Press, then leave the controllers alone for a few seconds."
               onClick={onCalibrateAll}
             >
               {calibrating ? "Hold them still…" : "Calibrate"}

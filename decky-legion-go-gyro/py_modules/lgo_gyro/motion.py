@@ -21,19 +21,25 @@ ROTATIONS = (0, 90, 180, 270)
 # ---- stillness detection / calibration tuning ----------------------------
 AUTO_WINDOW_S = 1.5
 AUTO_MIN_SAMPLES = 40
-AUTO_GYRO_SPREAD_DPS = 1.5
-AUTO_ACCEL_SPREAD_G = 0.03
+AUTO_GYRO_SPREAD_DPS = 3.0
+AUTO_ACCEL_SPREAD_G = 0.06
 AUTO_BIAS_LIMIT_DPS = 6.0
 
 # Manual calibration watches for up to MANUAL_TIMEOUT_S and finishes as
 # soon as it has seen one calm MANUAL_WINDOW_S. Pressing the button always
 # nudges the device, so the first moment is never held against the user,
 # and the limits are loose enough to succeed while it is held in the hand.
+#
+# It never insists on perfect stillness: if no window was that calm by
+# the time it runs out, it simply uses the calmest second it saw. Only a
+# device that was clearly being swung the whole time is rejected.
 MANUAL_WINDOW_S = 1.0
-MANUAL_TIMEOUT_S = 6.0
+MANUAL_TIMEOUT_S = 4.0
 MANUAL_MIN_SAMPLES = 15
-MANUAL_GYRO_SPREAD_DPS = 5.0
+MANUAL_GYRO_SPREAD_DPS = 5.0      # calm enough to finish right away
 MANUAL_ACCEL_SPREAD_G = 0.10
+MANUAL_MAX_GYRO_SPREAD_DPS = 45.0  # beyond this it is being moved on purpose
+MANUAL_MAX_ACCEL_SPREAD_G = 0.60
 
 ACCEL_SCALE_MIN = 0.75
 ACCEL_SCALE_MAX = 1.35
@@ -177,6 +183,9 @@ class Sensor(object):
         self._manual_deadline = 0.0
         self._manual_seen = 0
         self._manual_checked = 0.0
+        self._manual_best = None
+        # Gyro spread (deg/s) of the window the last manual calibration used
+        self.rest_noise_dps = None
         self.manual_result = None  # None | "ok" | "moved" | "nodata"
         self.manual_serial = 0
 
@@ -302,9 +311,15 @@ class Sensor(object):
         for _, a, g in samples:
             w.add(a, g)
         means, accel_spread, gyro_spread = w.stats()
+        # Remember the calmest second so far (gyro matters most)
+        score = gyro_spread + accel_spread * 50.0
+        best = self._manual_best
+        if best is None or score < best[0]:
+            self._manual_best = (score, means, accel_spread, gyro_spread)
         if (gyro_spread < MANUAL_GYRO_SPREAD_DPS
                 and accel_spread < MANUAL_ACCEL_SPREAD_G
                 and self._apply(means, strict=False)):
+            self.rest_noise_dps = gyro_spread
             self._finish_manual("ok")
 
     def _finish_manual(self, result):
@@ -352,6 +367,7 @@ class Sensor(object):
         self._manual_checked = now
         self._manual_deadline = now + MANUAL_TIMEOUT_S
         self._manual_seen = 0
+        self._manual_best = None
         self.manual_result = None
 
     @property
@@ -359,11 +375,21 @@ class Sensor(object):
         return self._manual is not None
 
     def poll_manual(self, now):
-        """Give up on a manual calibration that never saw a calm moment."""
+        """Time is up: settle for the calmest second that was seen."""
         if self._manual is None or now < self._manual_deadline:
             return
-        self._finish_manual(
-            "nodata" if self._manual_seen < MANUAL_MIN_SAMPLES else "moved")
+        best = self._manual_best
+        if self._manual_seen < MANUAL_MIN_SAMPLES or best is None:
+            self._finish_manual("nodata")
+            return
+        _, means, accel_spread, gyro_spread = best
+        if (gyro_spread < MANUAL_MAX_GYRO_SPREAD_DPS
+                and accel_spread < MANUAL_MAX_ACCEL_SPREAD_G
+                and self._apply(means, strict=False)):
+            self.rest_noise_dps = gyro_spread
+            self._finish_manual("ok")
+        else:
+            self._finish_manual("moved")
 
     def reset_calibration(self):
         self.cal = Calibration()
