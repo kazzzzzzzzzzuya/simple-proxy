@@ -1,9 +1,14 @@
 """Swap the menu buttons through InputPlumber.
 
 SteamOS routes the Legion Go controllers through InputPlumber. Loading a
-small device profile into it swaps View <-> Legion L (Steam) and
-Menu <-> Legion R (Quick Access). The profile that was active before is
-kept as the base, so its own mappings stay in effect.
+small device profile into it swaps the Steam (Legion L) and Quick Access
+(Legion R) buttons with View and Menu. Two layouts are offered:
+
+* ``steam_menu`` (default): Steam <-> Menu, Quick Access <-> View
+* ``steam_view``:           Steam <-> View, Quick Access <-> Menu
+
+The profile that was active before is kept as the base, so its own
+mappings stay in effect.
 """
 
 import os
@@ -14,20 +19,38 @@ from . import sysio
 DEST = "org.shadowblip.InputPlumber"
 IFACE = "org.shadowblip.Input.CompositeDevice"
 PATH_FMT = "/org/shadowblip/InputPlumber/CompositeDevice%d"
-PROFILE_NAME = "Legion Go Toolbox - swapped menu buttons"
 FALLBACK_BASE = "/usr/share/inputplumber/profiles/default.yaml"
 
-_SWAPS = (
-    ("Select", "Guide"),
-    ("Guide", "Select"),
-    ("Start", "QuickAccess"),
-    ("QuickAccess", "Start"),
-)
+# InputPlumber button names: Guide = Steam (Legion L), QuickAccess = Quick
+# Access (Legion R), Select = View, Start = Menu.
+LAYOUTS = {
+    "steam_menu": (
+        ("Start", "Guide"),
+        ("Guide", "Start"),
+        ("Select", "QuickAccess"),
+        ("QuickAccess", "Select"),
+    ),
+    "steam_view": (
+        ("Select", "Guide"),
+        ("Guide", "Select"),
+        ("Start", "QuickAccess"),
+        ("QuickAccess", "Start"),
+    ),
+}
+DEFAULT_LAYOUT = "steam_menu"
+PROFILE_NAMES = {
+    "steam_menu": "Legion Go Toolbox - Steam/Menu and QAM/View swapped",
+    "steam_view": "Legion Go Toolbox - Steam/View and QAM/Menu swapped",
+}
+OUR_PROFILES = frozenset(PROFILE_NAMES.values()) | {
+    "Legion Go Toolbox - swapped menu buttons",       # version 2.0 / 2.1
+}
+_SWAPPED_BUTTONS = frozenset(src for pairs in LAYOUTS.values() for src, _ in pairs)
 
 
-def _mapping_entries():
+def _mapping_entries(layout):
     out = []
-    for src, dst in _SWAPS:
+    for src, dst in LAYOUTS[layout]:
         out.append(
             "  - name: %s to %s\n"
             "    source_event:\n"
@@ -39,7 +62,7 @@ def _mapping_entries():
     return "".join(out)
 
 
-def build_profile(base_text=None):
+def build_profile(base_text=None, layout=DEFAULT_LAYOUT):
     """Profile YAML with the four swaps, on top of the base profile's own
     mappings when the base has the usual shape."""
     kept = ""
@@ -49,7 +72,7 @@ def build_profile(base_text=None):
         "version: 1\n"
         "kind: DeviceProfile\n"
         "name: %s\n"
-        "mapping:\n%s%s" % (PROFILE_NAME, kept, _mapping_entries()))
+        "mapping:\n%s%s" % (PROFILE_NAMES[layout], kept, _mapping_entries(layout)))
 
 
 def _base_mappings(text):
@@ -81,7 +104,7 @@ def _base_mappings(text):
             entries[-1].append(line)
         else:
             return ""           # unexpected layout: do not guess
-    swapped = {s for s, _ in _SWAPS}
+    swapped = _SWAPPED_BUTTONS
     kept = []
     for entry in entries:
         block = "\n".join(entry)
@@ -120,11 +143,16 @@ class MenuSwap(object):
     def available(self):
         return self._find_device() is not None
 
-    def is_active(self):
+    def is_active(self, layout=None):
+        """True if our profile (for `layout`, or any layout) is loaded,
+        None if InputPlumber is not running."""
         path = self._find_device()
         if not path:
             return None
-        return self._get(path, "ProfileName") == PROFILE_NAME
+        name = self._get(path, "ProfileName")
+        if layout is None:
+            return name in OUR_PROFILES
+        return name == PROFILE_NAMES[layout]
 
     # ---- base profile bookkeeping ---------------------------------------
     def _remember_base(self, path):
@@ -148,23 +176,26 @@ class MenuSwap(object):
         return True
 
     # ---- actions ----------------------------------------------------------
-    def apply(self, enabled):
+    def apply(self, enabled, layout=DEFAULT_LAYOUT):
         """Make InputPlumber match the wanted state. True on success."""
+        if layout not in LAYOUTS:
+            layout = DEFAULT_LAYOUT
         device = self._find_device()
         if not device:
             self.error = "InputPlumber is not running"
             return False
-        active = self._get(device, "ProfileName") == PROFILE_NAME
+        name = self._get(device, "ProfileName")
+        active = name in OUR_PROFILES
         if enabled:
-            if active:
+            if name == PROFILE_NAMES[layout]:
                 self.error = None
                 return True
             current = self._get(device, "ProfilePath")
-            if current and os.path.isfile(current):
+            if not active and current and os.path.isfile(current):
                 self._remember_base(current)
             base = self._base_path()
             base_text = sysio.read_text(base) if base else None
-            return self._load(device, build_profile(base_text))
+            return self._load(device, build_profile(base_text, layout))
         if not active:
             self.error = None
             return True
@@ -184,8 +215,8 @@ class MenuSwap(object):
 MANAGER_PATH = "/org/shadowblip/InputPlumber/Manager"
 MANAGER_IFACE = "org.shadowblip.InputManager"
 
-# What InputPlumber's Legion Go profile creates by default.
-DEFAULT_TARGETS = ("xbox-elite", "mouse", "keyboard", "touchpad")
+# What InputPlumber's own Legion Go configuration creates: an Xbox Elite pad.
+XBOX_TARGETS = ("xbox-elite", "mouse", "keyboard", "touchpad")
 # Controller types Steam gives gyro to.
 GYRO_TARGETS = ("deck-uhid", "ds5-edge", "ds5")
 
@@ -209,6 +240,8 @@ class SteamController(object):
         saved = sysio.read_text(state_file) if state_file else None
         if saved and "\n" in saved:
             kind, stamp = saved.split("\n", 1)
+            if kind == "default":       # name used by version 2.1
+                kind = "xbox"
             self._applied = (kind, stamp)
 
     def _device(self):
@@ -238,7 +271,7 @@ class SteamController(object):
     def needs_apply(self, kind):
         """True if InputPlumber is not (or no longer) emulating `kind`."""
         if self._applied is None:
-            return kind != "default"
+            return kind != "xbox"      # InputPlumber starts with its Xbox pad
         return self._applied != (kind, self._stamp())
 
     def apply(self, kind):
@@ -246,8 +279,8 @@ class SteamController(object):
         if not device:
             self.error = "InputPlumber is not running"
             return False
-        if kind == "default":
-            targets = list(DEFAULT_TARGETS)
+        if kind == "xbox":
+            targets = list(XBOX_TARGETS)
         elif kind in GYRO_TARGETS:
             targets = [kind, "keyboard", "mouse"]
         else:

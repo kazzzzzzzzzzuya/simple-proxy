@@ -88,6 +88,13 @@ class FakeAcpi(object):
             self.mode = args[2]
             return None
         if method == acpi.WMAB:
+            if args[1] == 0x05:          # read the table back
+                if self.curve is None:
+                    return bytes(44)
+                out = bytearray(44)
+                for i, level in enumerate(self.curve[6:26:2]):
+                    out[4 + 4 * i] = level
+                return bytes(out)
             self.curve = bytes(args[2])
             return None
         if method == acpi.WMAF:
@@ -227,16 +234,18 @@ class ControllerCommands(unittest.TestCase):
 
 class FanCurve(unittest.TestCase):
     def test_sanitize(self):
-        self.assertEqual(fan.sanitize_curve([0] * 10), (0, 0, 0, 0, 0, 0, 30, 50, 70, 90))
+        self.assertEqual(fan.sanitize_curve([0] * 10), fan.SAFETY_FLOOR)
+        self.assertEqual(fan.SAFETY_FLOOR, (44, 48, 55, 60, 71, 79, 87, 87, 100, 100))
         self.assertEqual(fan.sanitize_curve([200, 10, 5, 0, 0, 0, 0, 0, 0, 0]),
                          (115,) * 10)
-        self.assertEqual(fan.sanitize_curve([0, 0, 40, 20, 20, 60.4, 0, 0, 0, 0]),
-                         (0, 0, 40, 40, 40, 60, 60, 60, 70, 90))
+        self.assertEqual(fan.sanitize_curve([0, 0, 70, 20, 20, 90.4, 0, 0, 0, 0]),
+                         (44, 48, 70, 70, 71, 90, 90, 90, 100, 100))
         for bad in ([1] * 9, "x", [1] * 9 + ["a"], [True] * 10, None):
             with self.assertRaises(ValueError):
                 fan.sanitize_curve(bad)
         for preset in fan.PRESETS.values():
             self.assertEqual(fan.sanitize_curve(preset), preset)
+            self.assertTrue(all(p >= f for p, f in zip(preset, fan.SAFETY_FLOOR)))
 
     def test_payload(self):
         payload = fan.curve_payload(fan.PRESETS["balanced"])
@@ -251,9 +260,12 @@ class FanCurve(unittest.TestCase):
         ctl = fan.FanControl(sleeper=lambda s: None)
         self.assertTrue(ctl.apply([0] * 10))
         self.assertEqual(fake.mode, 0xFF)          # switched to custom mode
-        self.assertEqual(list(fake.curve[6:26:2]), [0, 0, 0, 0, 0, 0, 30, 50, 70, 90])
+        self.assertEqual(list(fake.curve[6:26:2]), list(fan.SAFETY_FLOOR))
+        self.assertEqual(ctl.read_curve(), fan.SAFETY_FLOOR)
+        self.assertFalse(ctl.read_full_speed())
         self.assertTrue(ctl.apply(fan.DEFAULT_CURVE, full_speed=True))
         self.assertEqual(fake.features[fan.FEATURE_FULL_SPEED], 1)
+        self.assertTrue(ctl.read_full_speed())
         modes = []
         orig = fake.call
 
@@ -390,16 +402,23 @@ class PowerLight(TempDirCase):
 class Plumber(TempDirCase):
     def test_profile_keeps_base_mappings(self):
         text = plumber.build_profile(DEFAULT_PROFILE_YAML)
-        self.assertIn("name: " + plumber.PROFILE_NAME, text)
+        self.assertIn("name: " + plumber.PROFILE_NAMES["steam_menu"], text)
         self.assertIn("button: LeftPaddle1", text)
         self.assertIn("LeftStickDial", text)
         self.assertNotIn("KeyEsc", text)          # replaced by the swap
         self.assertEqual(text.count("  - name:"), 2 + 4)
         self.assertEqual(text.count("mapping:"), 1)
+        # Default layout: Steam <-> Menu, Quick Access <-> View
+        for src, dst in (("Start", "Guide"), ("Guide", "Start"),
+                         ("Select", "QuickAccess"), ("QuickAccess", "Select")):
+            self.assertIn("button: %s\n    target_events:\n      - gamepad:\n"
+                          "          button: %s\n" % (src, dst), text)
+        other = plumber.build_profile(DEFAULT_PROFILE_YAML, "steam_view")
+        self.assertIn("name: " + plumber.PROFILE_NAMES["steam_view"], other)
         for src, dst in (("Select", "Guide"), ("Guide", "Select"),
                          ("Start", "QuickAccess"), ("QuickAccess", "Start")):
             self.assertIn("button: %s\n    target_events:\n      - gamepad:\n"
-                          "          button: %s\n" % (src, dst), text)
+                          "          button: %s\n" % (src, dst), other)
 
     def test_profile_without_usable_base(self):
         for base in (None, "", "name: x\n", "mapping:\n- flush: left\n",
@@ -417,8 +436,11 @@ class Plumber(TempDirCase):
             if cmd[1] == "get-property":
                 return 0, 's "%s"\n' % state[cmd[5]], ""
             state["loaded"] = cmd[-1]
-            if "name: " + plumber.PROFILE_NAME in cmd[-1]:
-                state["ProfileName"], state["ProfilePath"] = plumber.PROFILE_NAME, ""
+            state["loads"] = state.get("loads", 0) + 1
+            for name in plumber.PROFILE_NAMES.values():
+                if "name: " + name in cmd[-1]:
+                    state["ProfileName"], state["ProfilePath"] = name, ""
+                    break
             else:
                 state["ProfileName"] = "Default"
             return 0, "", ""
@@ -436,9 +458,16 @@ class Plumber(TempDirCase):
         self.assertTrue(swap.apply(True))
         self.assertTrue(swap.is_active())
         self.assertIn("button: LeftPaddle1", state["loaded"])
+        self.assertTrue(swap.is_active("steam_menu"))
+        self.assertFalse(swap.is_active("steam_view"))
         before = len(calls)
         self.assertTrue(swap.apply(True))                 # already active: no reload
         self.assertFalse(any(c[1] == "call" for c in calls[before:]))
+        # Changing the layout reloads, still on top of the original base
+        self.assertTrue(swap.apply(True, "steam_view"))
+        self.assertTrue(swap.is_active("steam_view"))
+        self.assertIn("button: LeftPaddle1", state["loaded"])
+        self.assertEqual(state["loads"], 2)
         # Turning it off loads the remembered base profile again
         self.assertTrue(swap.apply(False))
         self.assertEqual(state["loaded"], DEFAULT_PROFILE_YAML.strip())
@@ -465,7 +494,7 @@ class Plumber(TempDirCase):
         self.assertEqual(pad.supported(), ["deck-uhid", "ds5"])
         state["manager"] = False
         self.assertEqual(pad.supported(), ["deck-uhid", "ds5-edge", "ds5"])
-        self.assertFalse(pad.needs_apply("default"))
+        self.assertFalse(pad.needs_apply("xbox"))
         self.assertTrue(pad.needs_apply("deck-uhid"))
         self.assertTrue(pad.apply("deck-uhid"))
         self.assertEqual(calls[-2][-6:], ["SetTargetDevices", "as", "3",
@@ -474,10 +503,10 @@ class Plumber(TempDirCase):
         # A reloaded plugin knows what InputPlumber was told
         again = plumber.SteamController(runner=runner, state_file=path)
         self.assertFalse(again.needs_apply("deck-uhid"))
-        self.assertTrue(again.needs_apply("default"))
+        self.assertTrue(again.needs_apply("xbox"))
         state["stamp"] = "200"                            # service restarted
         self.assertTrue(again.needs_apply("deck-uhid"))
-        self.assertTrue(again.apply("default"))
+        self.assertTrue(again.apply("xbox"))
         self.assertEqual(calls[-2][-5:], ["4", "xbox-elite", "mouse", "keyboard", "touchpad"])
         self.assertFalse(again.apply("ps9"))
 
@@ -874,9 +903,23 @@ class Config(unittest.TestCase):
         self.assertIsNone(d["controls"]["touchpad"])
         self.assertEqual(cfg.sanitize("nope"), cfg.defaults())
 
+    def test_migration_to_version_2(self):
+        old = {"version": 1, "controls": {"steam_controller": "default", "swap_menu": True}}
+        d = cfg.sanitize(old)
+        self.assertEqual(d["version"], 2)
+        self.assertEqual(d["controls"]["steam_controller"], "deck-uhid")
+        self.assertEqual(d["controls"]["swap_layout"], "steam_menu")
+        self.assertTrue(d["controls"]["swap_menu"])
+        self.assertEqual(cfg.sanitize({"version": 1, "controls": {"steam_controller": "ds5"}})
+                         ["controls"]["steam_controller"], "ds5")
+        # In version 2 files the Xbox pad is a deliberate choice
+        self.assertEqual(cfg.sanitize({"version": 2, "controls": {"steam_controller": "xbox"}})
+                         ["controls"]["steam_controller"], "xbox")
+        self.assertEqual(cfg.sanitize(cfg.sanitize(old)), cfg.sanitize(old))
+
     def test_fan_curve_is_made_safe_on_load(self):
         d = cfg.sanitize({"fan": {"curve": [0] * 10}})
-        self.assertEqual(d["fan"]["curve"][-1], 90)
+        self.assertEqual(d["fan"]["curve"], list(cfg.fan.SAFETY_FLOOR))
 
 
 class FakeLimits(object):
@@ -923,12 +966,26 @@ class FakeFan(object):
         self.applied = []
         self.restored = 0
         self.error = None
+        self.full_speed = False
+        self.curve = None
+        self.readable = True
+
+    def read_full_speed(self):
+        return self.full_speed if self.readable else None
+
+    def read_curve(self):
+        return self.curve if self.readable else None
 
     def available(self):
         return self.ok
 
     def apply(self, curve, full_speed=False, ensure_custom=True):
         self.applied.append((tuple(curve), full_speed, ensure_custom))
+        if full_speed:
+            self.full_speed = True
+        else:
+            self.full_speed = False
+            self.curve = tuple(cfg.fan.sanitize_curve(curve))
         return True
 
     def restore(self):
@@ -974,6 +1031,7 @@ class FakeLed(object):
 class FakeSwap(object):
     def __init__(self):
         self.active = False
+        self.layout = None
         self.running = True
         self.error = None
         self.loads = 0
@@ -981,22 +1039,26 @@ class FakeSwap(object):
     def available(self):
         return self.running
 
-    def is_active(self):
-        return self.active if self.running else None
+    def is_active(self, layout=None):
+        if not self.running:
+            return None
+        return self.active and (layout is None or layout == self.layout)
 
-    def apply(self, enabled):
+    def apply(self, enabled, layout="steam_menu"):
         if not self.running:
             self.error = "InputPlumber is not running"
             return False
-        if self.active != enabled:
+        if (self.active, self.layout) != (enabled, layout if enabled else self.layout):
             self.loads += 1
         self.active = enabled
+        if enabled:
+            self.layout = layout
         return True
 
 
 class FakeSteamPad(object):
     def __init__(self):
-        self.kind = "default"
+        self.kind = "xbox"
         self.applies = []
         self.restarted = False
         self.error = None
@@ -1062,12 +1124,13 @@ class HubTests(TempDirCase):
             self.sent.extend(cmds)
         return self.send_error
 
-    def test_fresh_install_changes_nothing(self):
+    def test_fresh_install_only_sets_the_steam_controller(self):
         self.hub.apply_all("test")
         m = self.mods
         self.assertEqual((m["limits"].writes, m["fan"].applied, m["led"].history,
                           self.sent, m["swap"].loads, m["charge"].enabled),
                          ([], [], [], [], 0, False))
+        self.assertEqual(m["steam_pad"].applies, ["deck-uhid"])   # the default
         self.assertEqual(self.hub.errors, {})
 
     def test_capabilities(self):
@@ -1139,6 +1202,19 @@ class HubTests(TempDirCase):
         self.hub.update({"controls": {"touchpad": False}})
         self.assertEqual(self.sent, [controller.touchpad_command(False)])
 
+    def test_swap_layouts(self):
+        swap = self.mods["swap"]
+        self.hub.update({"controls": {"swap_menu": True}})
+        self.assertEqual((swap.active, swap.layout), (True, "steam_menu"))   # default
+        self.assertTrue(self.hub.status()["swap_menu"]["active"])
+        self.hub.update({"controls": {"swap_layout": "steam_view"}})
+        self.assertEqual(swap.layout, "steam_view")
+        swap.layout = "steam_menu"                # someone loaded the other one
+        self.hub._tick(100.0)
+        self.assertEqual(swap.layout, "steam_view")
+        self.assertEqual(cfg.sanitize({"controls": {"swap_layout": "x"}})
+                         ["controls"]["swap_layout"], "steam_menu")
+
     def test_swap_is_kept_alive(self):
         swap = self.mods["swap"]
         self.hub.update({"controls": {"swap_menu": True}})
@@ -1157,7 +1233,12 @@ class HubTests(TempDirCase):
         self.assertEqual(self.hub.capabilities(True)["steam_gyro"]["types"],
                          ["deck-uhid", "ds5-edge", "ds5"])
         self.hub.apply_all("test")
-        self.assertEqual(pad.applies, [])                 # default: untouched
+        self.assertEqual(pad.applies, ["deck-uhid"])      # the default
+        self.hub.update({"controls": {"steam_controller": "xbox"}})
+        self.assertEqual(pad.applies, ["deck-uhid", "xbox"])
+        self.hub.apply_all("test")
+        self.assertEqual(pad.applies, ["deck-uhid", "xbox"])   # nothing to change
+        del pad.applies[:]
         self.hub.update({"controls": {"swap_menu": True}})
         orig_sleep = time.sleep
         time.sleep = lambda s: None
@@ -1172,10 +1253,10 @@ class HubTests(TempDirCase):
         pad.restarted = True                              # InputPlumber restarted
         self.hub._tick(600.0)
         self.assertEqual(pad.applies, ["deck-uhid", "deck-uhid"])
-        self.hub.update({"controls": {"steam_controller": "default"}})
-        self.assertEqual(pad.applies[-1], "default")
+        self.hub.update({"controls": {"steam_controller": "xbox"}})
+        self.assertEqual(pad.applies[-1], "xbox")
         self.assertEqual(cfg.sanitize({"controls": {"steam_controller": "ps9"}})
-                         ["controls"]["steam_controller"], "default")
+                         ["controls"]["steam_controller"], "deck-uhid")
 
     def test_manual_tdp_and_modes(self):
         limits = self.mods["limits"]
@@ -1242,7 +1323,7 @@ class HubTests(TempDirCase):
     def test_fan(self):
         f = self.mods["fan"]
         self.hub.update({"fan": {"enabled": True, "curve": [0] * 10}})
-        self.assertEqual(f.applied[-1], ((0, 0, 0, 0, 0, 0, 30, 50, 70, 90), False, True))
+        self.assertEqual(f.applied[-1], (cfg.fan.SAFETY_FLOOR, False, True))
         # With the power module in a firmware mode the table is not forced
         self.hub.update({"power": {"enabled": True, "profiles": {"default": {
             "mode": "balanced"}}}})
@@ -1257,6 +1338,57 @@ class HubTests(TempDirCase):
         f.ok = False
         self.hub.update({"fan": {"enabled": True}})
         self.assertIn("acpi_call", self.hub.errors["fan"])
+
+    def test_fan_watchdog_restores_full_speed(self):
+        f = self.mods["fan"]
+        self.hub.update({"fan": {"enabled": True, "full_speed": True}})
+        self.assertTrue(f.full_speed)
+        n = len(f.applied)
+        self.hub._check_fan(10.0)
+        self.assertEqual(len(f.applied), n)            # still on: nothing to do
+        f.full_speed = False                           # firmware dropped it
+        self.hub._check_fan(20.0)
+        self.assertTrue(f.full_speed)
+        self.assertEqual(f.applied[-1][1], True)
+        st = self.hub.status()["fan"]
+        self.assertEqual(st["restores"], 1)
+        f.readable = False                             # cannot read: leave it
+        f.full_speed = False
+        self.hub._check_fan(30.0)
+        self.assertFalse(f.full_speed)
+
+    def test_fan_watchdog_restores_the_curve(self):
+        f = self.mods["fan"]
+        self.hub.update({"fan": {"enabled": True,
+                                 "curve": list(cfg.fan.PRESETS["performance"])}})
+        n = len(f.applied)
+        self.hub._check_fan(10.0)
+        self.assertEqual(len(f.applied), n)
+        f.curve = cfg.fan.SAFETY_FLOOR                 # mode change: stock table
+        self.hub._check_fan(20.0)
+        self.assertEqual(f.curve, cfg.fan.PRESETS["performance"])
+        # A firmware mode the plugin chose on purpose is left alone
+        self.hub.update({"power": {"enabled": True, "profiles": {"default": {
+            "mode": "balanced"}}}})
+        f.curve = cfg.fan.SAFETY_FLOOR
+        n = len(f.applied)
+        self.hub._check_fan(30.0)
+        self.assertEqual(len(f.applied), n)
+
+    def test_fan_watchdog_gives_up_on_unreadable_tables(self):
+        f = self.mods["fan"]
+        self.hub.update({"fan": {"enabled": True}})
+        orig = f.read_curve
+        f.read_curve = lambda: (1,) * 10               # never matches
+        self.hub._check_fan(10.0)
+        n = len(f.applied)
+        self.hub._check_fan(20.0)
+        self.assertEqual(len(f.applied), n)            # stopped re-applying
+        f.read_curve = orig
+        self.hub.update({"fan": {"curve": list(cfg.fan.PRESETS["silent"])}})
+        f.curve = (0,) * 10
+        self.hub._check_fan(30.0)                      # checks again after a change
+        self.assertEqual(f.curve, cfg.fan.PRESETS["silent"])
 
     def test_everything_is_reapplied_after_resume_and_reconnect(self):
         self.hub.update({

@@ -7,7 +7,7 @@
 Power and automatic TDP, fan curve, stick and power lights, charge limit,
 button remapping, swapped menu buttons and per-controller gyro for emulators.
 
-[Features](#features) · [Requirements](#requirements) · [Installation](#installation) · [Using the tabs](#using-the-tabs) · [Troubleshooting](#troubleshooting) · [How it works](#how-it-works) · [Credits](#credits)
+**[User manual (PDF)](docs/Legion-Go-Toolbox-Manual.pdf)** · [Features](#features) · [Requirements](#requirements) · [Installation](#installation) · [Using the tabs](#using-the-tabs) · [Troubleshooting](#troubleshooting) · [How it works](#how-it-works) · [Credits](#credits)
 
 </div>
 
@@ -96,10 +96,17 @@ curve, which is safe.
 ### Fan
 
 Needs `acpi_call` (see above). The firmware keeps control of the fan and of
-overheating protection; the plugin only changes the table it follows. The
-curve always rises with temperature and cannot be set below 30 / 50 / 70 /
-90 % at 70 / 80 / 90 / 100 °C. The firmware uses a custom table only in the
-*Custom* power mode.
+overheating protection; the plugin only changes the table it follows.
+
+- The curve always rises with temperature and never goes below Lenovo's own
+  minimum for the Legion Go (44 % at 10 °C rising to 100 % at 90 °C, the same
+  limit Handheld Daemon enforces). *Silent* is exactly that minimum.
+- The firmware throws away *full speed* and the custom curve whenever the
+  power mode changes - whether Steam, another tool or this plugin changes it.
+  The plugin reads both back every 5 seconds (and one second after each of
+  its own power changes) and puts them back. The Fan tab shows how often it
+  had to.
+- The firmware uses a custom table only in the *Custom* power mode.
 
 ### Lights
 
@@ -108,9 +115,17 @@ power light off when the device suspends and back on when it wakes.
 
 ### Controls
 
-- **Swap menu buttons**: View and Menu open Steam and Quick Access; Legion L
-  and Legion R become View and Menu. Done with an InputPlumber profile on top
-  of the active one, and restored when you switch it off.
+- **Swap menu buttons** with two layouts:
+
+  | Layout | Press | Gets |
+  |---|---|---|
+  | **Steam ↔ Menu, QAM ↔ View** (default) | Menu / View | Steam / Quick Access |
+  | | Legion L / Legion R | Menu / View |
+  | Steam ↔ View, QAM ↔ Menu | View / Menu | Steam / Quick Access |
+  | | Legion L / Legion R | View / Menu |
+
+  Done with an InputPlumber profile on top of the active one, and restored
+  when you switch it off.
 - **Remap back buttons** uses Lenovo's own remapping, stored in the
   controllers. Steam still sees the back buttons as extra buttons too, so
   leave them unassigned in Steam Input for games where you use this.
@@ -118,10 +133,11 @@ power light off when the device suspends and back on when it wakes.
 ### Gyro
 
 **In Steam games.** Steam only offers gyro for controllers that have one,
-and by default SteamOS presents the Legion Go as an Xbox controller. Under
-*Gyro in Steam games* choose **Steam Deck controller** (or a DualSense):
-Steam then shows its normal gyro options for every game (Steam button →
-Controller settings → Gyro). This uses the motion sensor inside the tablet,
+and InputPlumber on its own presents the Legion Go as an Xbox controller.
+This plugin presents it as a **Steam Deck controller** by default (also
+selectable: DualSense, DualSense Edge, or back to Xbox), so Steam shows its
+normal gyro options for every game (Steam button → Controller settings →
+Gyro). This uses the motion sensor inside the tablet,
 so it works with the controllers attached; it cannot use a detached
 controller's own sensor. Switching the type reconnects the controller once,
 so do it before starting a game. Controller layouts are stored per
@@ -159,10 +175,9 @@ Press **Calibrate** once and leave the controllers alone for a few seconds.
 
 ## Scope and limits
 
-- Written against the documented hardware interfaces and verified with
-  simulated hardware (119 automated tests). Only the gyro part has been run
-  on a real Legion Go so far; the other modules read the device state back
-  after every change and report it when a change did not take.
+- Used on a Legion Go (83E1), and verified with simulated hardware (124
+  automated tests). Every module reads the device state back after a change
+  and reports it when a change did not take.
 - Legion Go 2 and Legion Go S are recognised for the parts that are known to
   be identical (power limits, charge limit, power light); the rest stays off.
 - Gyro in Steam games comes from the tablet's sensor through SteamOS's own
@@ -196,6 +211,16 @@ pnpm install
 python3 -m unittest discover -s tests     # backend tests
 pnpm run build                            # UI -> dist/
 bash scripts/package.sh                   # -> release/legion-go-toolbox.zip
+```
+
+The PDF manual and README live in `docs/`. To rebuild them after editing
+`docs/src/manual.html` or this README (needs Node with `marked` and
+Playwright):
+
+```bash
+cd docs/src
+node readme.cjs ../../README.md readme.html print.css
+node render.cjs && mv *.pdf ..
 ```
 
 ## Credits

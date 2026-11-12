@@ -5,12 +5,13 @@ import { update, useStore } from "../store";
 import { ACCENT, ErrorRow, Info, Unavailable } from "../ui";
 
 const TEMPS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-const FLOOR = [0, 0, 0, 0, 0, 0, 30, 50, 70, 90];
+// Lenovo's minimum curve for the Legion Go: nothing below it is accepted.
+const FLOOR = [44, 48, 55, 60, 71, 79, 87, 87, 100, 100];
 const MAX_LEVEL = 115;
 const PRESETS: Record<string, number[]> = {
-  silent: [0, 0, 0, 0, 25, 35, 45, 60, 80, 100],
-  balanced: [0, 0, 0, 25, 35, 45, 60, 75, 90, 100],
-  performance: [0, 0, 30, 40, 50, 65, 80, 95, 105, 115],
+  silent: FLOOR.slice(),
+  balanced: [44, 50, 58, 66, 78, 88, 96, 100, 105, 110],
+  performance: [50, 56, 64, 74, 86, 96, 105, 110, 115, 115],
 };
 const PRESET_OPTIONS = [
   { data: "silent", label: "Silent" },
@@ -33,6 +34,12 @@ function withPoint(curve: number[], index: number, value: number): number[] {
   for (let i = index + 1; i < next.length; i++) next[i] = Math.max(next[i], next[i - 1]);
   for (let i = index - 1; i >= 0; i--) next[i] = Math.min(next[i], next[i + 1]);
   return next.map((v, i) => Math.max(v, FLOOR[i]));
+}
+
+function agoText(seconds: number): string {
+  if (seconds < 60) return "just now";
+  const min = Math.round(seconds / 60);
+  return min < 60 ? `${min} min ago` : `${Math.round(min / 60)} h ago`;
 }
 
 const CurvePreview: FC<{ curve: number[]; temp: number | null }> = ({ curve, temp }) => {
@@ -99,6 +106,13 @@ export const FanTab: FC = () => {
       </PanelSectionRow>
       {reading && <Info label="Now">{reading}</Info>}
       <ErrorRow message={status.errors.fan} />
+      {f.enabled && sensors.restores > 0 && (
+        <Info label="Kept on">
+          {`The firmware dropped the fan setting ${sensors.restores === 1 ? "once" : `${sensors.restores} times`}${
+            sensors.restored_ago != null ? ` (last ${agoText(sensors.restored_ago)})` : ""
+          }; the plugin put it back. This happens when the power mode changes.`}
+        </Info>
+      )}
       {waitingForCustom && (
         <Info label="Not in use right now" warn>
           The firmware only follows a custom curve in the Custom power mode.
@@ -109,7 +123,7 @@ export const FanTab: FC = () => {
           <PanelSectionRow>
             <ToggleField
               label="Full speed"
-              description="Runs the fan flat out, ignoring the curve."
+              description="Runs the fan flat out, ignoring the curve. The plugin checks every few seconds and turns it back on if the firmware switches it off."
               checked={f.full_speed}
               onChange={(v) => update({ fan: { full_speed: v } })}
             />
@@ -137,9 +151,9 @@ export const FanTab: FC = () => {
                   <SliderField
                     label={`At ${t} °C`}
                     value={f.curve[i]}
-                    min={0}
+                    min={FLOOR[i]}
                     max={MAX_LEVEL}
-                    step={5}
+                    step={1}
                     showValue
                     valueSuffix="%"
                     onChange={(v) => update({ fan: { curve: withPoint(f.curve, i, v) } })}
@@ -147,8 +161,8 @@ export const FanTab: FC = () => {
                 </PanelSectionRow>
               ))}
               <Info label="Safety">
-                The curve always rises with temperature and cannot go below 30 / 50 / 70 / 90 % at
-                70 / 80 / 90 / 100 °C.
+                The curve always rises with temperature and never goes below Lenovo's own minimum
+                (44 % at 10 °C up to 100 % at 90 °C). Silent is that minimum.
               </Info>
             </>
           )}

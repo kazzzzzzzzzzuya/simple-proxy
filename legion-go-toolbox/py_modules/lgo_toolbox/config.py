@@ -14,7 +14,12 @@ POWER_PROFILE_DEFAULT = {
     "target_fps": 60,
     "min_tdp": 8,
 }
-STEAM_CONTROLLERS = ("default", "deck-uhid", "ds5-edge", "ds5")
+SETTINGS_VERSION = 2
+# Controller InputPlumber presents to Steam. "xbox" is InputPlumber's own
+# choice (no gyro in Steam); the default here is the Steam Deck controller.
+STEAM_CONTROLLERS = ("deck-uhid", "xbox", "ds5-edge", "ds5")
+DEFAULT_STEAM_CONTROLLER = "deck-uhid"
+SWAP_LAYOUTS = ("steam_menu", "steam_view")
 TARGET_FPS_CHOICES = (30, 40, 45, 48, 50, 60, 72, 90, 120, 144)
 TDP_ABS_MIN = 4
 TDP_ABS_MAX = 40
@@ -22,7 +27,7 @@ TDP_ABS_MAX = 40
 
 def defaults():
     return {
-        "version": 1,
+        "version": SETTINGS_VERSION,
         "lighting": {
             "sticks": {
                 "managed": False,
@@ -48,9 +53,8 @@ def defaults():
         },
         "controls": {
             "swap_menu": False,
-            # Controller InputPlumber shows to Steam: "default" (Xbox, no
-            # gyro) or a gyro-capable type.
-            "steam_controller": "default",
+            "swap_layout": SWAP_LAYOUTS[0],
+            "steam_controller": DEFAULT_STEAM_CONTROLLER,
             "remap_managed": False,
             "remap": {name: "none" for name in controller.REMAP_BUTTONS},
             "touchpad": None,
@@ -90,6 +94,8 @@ def sanitize(data):
     out = defaults()
     if not isinstance(data, dict):
         return out
+    version = data.get("version")
+    old = not isinstance(version, int) or isinstance(version, bool) or version < 2
 
     light = data.get("lighting")
     if isinstance(light, dict):
@@ -141,8 +147,16 @@ def sanitize(data):
     if isinstance(c, dict):
         d = out["controls"]
         d["swap_menu"] = _flag(c.get("swap_menu"), False)
-        if c.get("steam_controller") in STEAM_CONTROLLERS:
-            d["steam_controller"] = c["steam_controller"]
+        if c.get("swap_layout") in SWAP_LAYOUTS:
+            d["swap_layout"] = c["swap_layout"]
+        steam = c.get("steam_controller")
+        if steam == "default":
+            # Version 1 called the Xbox pad "default" and used it unless the
+            # user picked another type. Version 2 defaults to the Steam Deck
+            # controller, so an untouched old setting moves to that.
+            steam = DEFAULT_STEAM_CONTROLLER if old else "xbox"
+        if steam in STEAM_CONTROLLERS:
+            d["steam_controller"] = steam
         d["remap_managed"] = _flag(c.get("remap_managed"), False)
         d["touchpad"] = _opt_flag(c.get("touchpad"), None)
         remap = c.get("remap")

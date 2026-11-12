@@ -42,7 +42,8 @@ export interface Settings {
   };
   controls: {
     swap_menu: boolean;
-    /** "default" (Xbox pad, no gyro) or a gyro-capable type Steam knows. */
+    swap_layout: "steam_menu" | "steam_view";
+    /** "deck-uhid" (default), "xbox" (no gyro in Steam), "ds5-edge" or "ds5". */
     steam_controller: string;
     remap_managed: boolean;
     remap: Record<RemapButton, string>;
@@ -93,7 +94,13 @@ export interface HubStatus {
       probe_error: string | null;
     };
   };
-  fan: { temp: number | null; rpm: number | null };
+  fan: {
+    temp: number | null;
+    rpm: number | null;
+    /** How often the plugin had to put the fan setting back. */
+    restores: number;
+    restored_ago: number | null;
+  };
   battery: {
     info: { percent: number; status: string } | null;
     charge_limit: boolean | null;

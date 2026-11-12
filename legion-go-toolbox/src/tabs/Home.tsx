@@ -62,7 +62,10 @@ export const HomeTab: FC<{ go: (tab: string) => void }> = ({ go }) => {
   const controlsLine = () => {
     const c = settings.controls;
     const parts = [];
-    if (c.swap_menu) parts.push(status.swap_menu.active ? "menu buttons swapped" : "swap pending");
+    if (c.swap_menu) {
+      const what = c.swap_layout === "steam_view" ? "Steam/View swapped" : "Steam/Menu swapped";
+      parts.push(status.swap_menu.active ? what : "swap pending");
+    }
     if (c.remap_managed) parts.push("back buttons remapped");
     if (c.touchpad === false) parts.push("touchpad off");
     return parts.join(" · ") || "Default";
@@ -75,7 +78,7 @@ export const HomeTab: FC<{ go: (tab: string) => void }> = ({ go }) => {
     const live = (["left", "right"] as const).filter((n) => g.slots[n].live).length;
     const who =
       g.server.clients === 1 ? "1 emulator connected" : `${g.server.clients} emulators connected`;
-    const steam = settings.controls.steam_controller !== "default" ? " · Steam gyro on" : "";
+    const steam = settings.controls.steam_controller !== "xbox" ? " · Steam gyro on" : "";
     return `${live} of 2 controllers sending motion · ${who}${steam}`;
   };
 

@@ -5,10 +5,12 @@ import { update, useStore } from "../store";
 import { ErrorRow, Unavailable } from "../ui";
 
 const LABELS: Record<string, string> = {
-  "deck-uhid": "Steam Deck controller (gyro)",
+  "deck-uhid": "Steam Deck controller (default)",
+  xbox: "Xbox controller (no gyro)",
   "ds5-edge": "DualSense Edge (gyro)",
   ds5: "DualSense (gyro)",
 };
+const ORDER = ["deck-uhid", "xbox", "ds5-edge", "ds5"];
 
 /** Gyro for ordinary Steam games: make Steam see a controller with a gyro. */
 export const SteamGyroSection: FC = () => {
@@ -16,17 +18,15 @@ export const SteamGyroSection: FC = () => {
   if (!state) return null;
   const { caps, settings, status } = state;
   const current = settings.controls.steam_controller;
-  const options = [
-    { data: "default", label: "Xbox controller (no gyro)" },
-    ...caps.steam_gyro.types.map((t) => ({ data: t, label: LABELS[t] ?? t })),
-  ];
-  if (!options.some((o) => o.data === current)) {
-    options.push({ data: current, label: LABELS[current] ?? current });
-  }
+  const offered = new Set(["xbox", current, ...caps.steam_gyro.types]);
+  const options = ORDER.filter((t) => offered.has(t)).map((t) => ({
+    data: t,
+    label: LABELS[t] ?? t,
+  }));
 
   return (
     <PanelSection title="Gyro in Steam games">
-      {!caps.steam_gyro.available && current === "default" ? (
+      {!caps.steam_gyro.available && current === "xbox" ? (
         <Unavailable cap={caps.steam_gyro} what="Gyro for Steam games" />
       ) : (
         <>
@@ -34,8 +34,8 @@ export const SteamGyroSection: FC = () => {
             <DropdownItem
               label="Steam sees a"
               description={
-                current === "default"
-                  ? "Steam only offers gyro for controllers that have one. Pick a gyro type to unlock it."
+                current === "xbox"
+                  ? "Steam only offers gyro for controllers that have one. Pick another type to unlock it."
                   : "Now set it up per game: Steam button → Controller settings → Gyro. Uses the motion sensor in the tablet, so it works with the controllers attached."
               }
               rgOptions={options}

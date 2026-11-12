@@ -5,6 +5,10 @@ that it applies while the device is in its "custom" power mode. Writing
 that table needs Lenovo's WMI method, i.e. the acpi_call kernel module.
 The fan itself always stays under firmware control: this only changes the
 table the firmware follows, and thermal protection keeps working.
+
+The firmware drops both the custom table and "full speed" when the power
+mode changes (by Steam, another tool, or this plugin), so the plugin reads
+them back regularly and puts them back when they are gone.
 """
 
 import os
@@ -19,14 +23,15 @@ FEATURE_FULL_SPEED = 0x04020000
 MODE_CUSTOM = 0xFF
 MODE_PERFORMANCE = 0x03
 
-# The curve may never go below these levels (per temperature), so a
-# mis-drawn curve cannot cook the device.
-SAFETY_FLOOR = (0, 0, 0, 0, 0, 0, 30, 50, 70, 90)
+# The curve may never go below these levels (per temperature). This is the
+# minimum Lenovo's own software accepts for the Legion Go (enforced the same
+# way by Handheld Daemon), so no curve can run the device hotter than that.
+SAFETY_FLOOR = (44, 48, 55, 60, 71, 79, 87, 87, 100, 100)
 
 PRESETS = {
-    "silent":      (0, 0, 0, 0, 25, 35, 45, 60, 80, 100),
-    "balanced":    (0, 0, 0, 25, 35, 45, 60, 75, 90, 100),
-    "performance": (0, 0, 30, 40, 50, 65, 80, 95, 105, 115),
+    "silent":      SAFETY_FLOOR,
+    "balanced":    (44, 50, 58, 66, 78, 88, 96, 100, 105, 110),
+    "performance": (50, 56, 64, 74, 86, 96, 105, 110, 115, 115),
 }
 DEFAULT_CURVE = PRESETS["balanced"]
 
@@ -125,6 +130,25 @@ class FanControl(object):
             self._sleep(0.3)
         return self._try(acpi.call, acpi.WMAB, [0, 0x06, curve_payload(curve)],
                          self._path)
+
+    # ---- reading back ----------------------------------------------------
+    def read_full_speed(self):
+        """True / False, or None when it cannot be read."""
+        try:
+            value = acpi.get_feature(FEATURE_FULL_SPEED, self._path)
+        except acpi.AcpiError:
+            return None
+        return bool(value) if isinstance(value, int) else None
+
+    def read_curve(self):
+        """The ten levels the firmware is using, or None when unreadable."""
+        try:
+            raw = acpi.call(acpi.WMAB, [0, 0x05, bytes(4)], self._path)
+        except acpi.AcpiError:
+            return None
+        if not isinstance(raw, (bytes, bytearray)) or len(raw) < 44:
+            return None
+        return tuple(raw[i] for i in range(4, 44, 4))
 
     def restore(self):
         """Hand the fan table back to the firmware default."""

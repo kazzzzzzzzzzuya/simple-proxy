@@ -25,6 +25,7 @@ CONTROLLER_MODELS = LEGION_GO + LEGION_GO_2
 TICK_S = 1.0
 REASSERT_S = 10.0
 SWAP_CHECK_S = 5.0
+FAN_CHECK_S = 5.0
 RECONNECT_DELAY_S = 2.0
 RESUME_DELAY_S = 3.0
 
@@ -68,6 +69,10 @@ class Hub(object):
         self._auto_applied = None
         self._power_applied_at = 0.0
         self._swap_checked = 0.0
+        self._fan_checked = 0.0
+        self._fan_unverifiable = False
+        self._fan_restores = 0
+        self._fan_restored_at = None
         self._reapply_controller_at = None
         self._reapply_all_at = None
         self._controller_seen = None
@@ -245,7 +250,7 @@ class Hub(object):
                 # A new virtual controller starts with the base profile.
                 time.sleep(1.0)
                 self._apply_swap()
-            elif o["swap_menu"] != n["swap_menu"]:
+            elif (o["swap_menu"], o["swap_layout"]) != (n["swap_menu"], n["swap_layout"]):
                 self._apply_swap()
             if (o["remap"], o["remap_managed"], o["touchpad"]) != (
                     n["remap"], n["remap_managed"], n["touchpad"]):
@@ -320,11 +325,12 @@ class Hub(object):
 
     def _apply_swap(self):
         want = self.settings["controls"]["swap_menu"]
+        layout = self.settings["controls"]["swap_layout"]
         with self._hw:
             if not want and not self.swap.available():
                 self._err("swap_menu", None)
                 return
-            ok = self.swap.apply(want)
+            ok = self.swap.apply(want, layout)
         self._invalidate("swap")
         self._err("swap_menu", None if ok else self.swap.error)
 
@@ -350,6 +356,53 @@ class Hub(object):
                 return
             ok = self.fan.apply(conf["curve"], conf["full_speed"],
                                 ensure_custom=managed_mode is None)
+            self._fan_unverifiable = False
+        self._err("fan", None if ok else self.fan.error)
+
+    def _fan_check_soon(self):
+        """After a power-mode or TDP write: the firmware may have dropped the
+        fan settings, so look again in a second instead of in five."""
+        self._fan_checked = time.monotonic() - FAN_CHECK_S + 1.0
+
+    def _check_fan(self, now):
+        """Read the firmware's fan state back and restore what it dropped.
+
+        The firmware resets "full speed" and the custom table whenever the
+        power mode changes - whoever changes it. Without this check the fan
+        would silently fall back to the stock curve.
+        """
+        conf = self.settings["fan"]
+        if not conf["enabled"] or self.product not in LEGION_GO:
+            return
+        if not self.fan.available():
+            return
+        power = self.settings["power"]
+        managed_mode = self.active_profile()[1]["mode"] if power["enabled"] else None
+        with self._hw:
+            if conf["full_speed"]:
+                if self.fan.read_full_speed() is not False:
+                    return
+                self._log.info("Full fan speed was switched off by the firmware; turning it back on")
+                ok = self.fan.apply(conf["curve"], True)
+            else:
+                if managed_mode not in (None, CUSTOM) or self._fan_unverifiable:
+                    return
+                current = self.fan.read_curve()
+                want = fan.sanitize_curve(conf["curve"])
+                if current is None or tuple(current) == want:
+                    return
+                self._log.info("The firmware is not using the custom fan curve; restoring it")
+                ok = self.fan.apply(want, False, ensure_custom=managed_mode is None)
+                after = self.fan.read_curve() if ok else None
+                if after is not None and tuple(after) != want:
+                    # The firmware reports the table differently from how it
+                    # was written: stop comparing, keep re-applying on mode
+                    # changes only.
+                    self._fan_unverifiable = True
+                    self._log.warning("Fan curve read-back %s does not match %s; "
+                                      "not checking it any more", list(after), list(want))
+        self._fan_restores += 1
+        self._fan_restored_at = now
         self._err("fan", None if ok else self.fan.error)
 
     # ---- power ---------------------------------------------------------------
@@ -394,6 +447,7 @@ class Hub(object):
                 self.fps.set_app(None)
                 ok = self.limits.profile() == profile["mode"] or \
                     self.limits.set_profile(profile["mode"])
+                self._fan_check_soon()
                 self._err("power", None if ok else self.limits.error)
                 return
             low, top = self._tdp_bounds(profile)
@@ -413,6 +467,7 @@ class Hub(object):
             was_custom = self.limits.profile() == CUSTOM
             ok = self.limits.set_tdp(want)
             self._auto_applied = want if ok else None
+            self._fan_check_soon()
             self._err("power", None if ok else self.limits.error)
         if ok and not was_custom and self.settings["fan"]["enabled"]:
             time.sleep(0.5)
@@ -431,6 +486,7 @@ class Hub(object):
             with self._hw:
                 if self.limits.set_tdp(want):
                     self._auto_applied = want
+                    self._fan_check_soon()
                     self._err("power", None)
                 else:
                     self._err("power", self.limits.error)
@@ -459,10 +515,15 @@ class Hub(object):
         if now - self._swap_checked >= SWAP_CHECK_S:
             self._swap_checked = now
             # InputPlumber forgets both when it restarts: put them back.
-            if self.settings["controls"]["steam_controller"] != "default":
+            controls = self.settings["controls"]
+            if controls["steam_controller"] != "xbox":
                 self._apply_steam_pad()
-            if self.settings["controls"]["swap_menu"] and self.swap.is_active() is False:
+            if controls["swap_menu"] and self.swap.is_active(controls["swap_layout"]) is False:
                 self._apply_swap()
+
+        if now - self._fan_checked >= FAN_CHECK_S:
+            self._fan_checked = now
+            self._check_fan(now)
 
         # Controllers that (re)appear get their lights and mapping again
         if self._controller_status is not None:
@@ -548,13 +609,16 @@ class Hub(object):
                     "probe_error": self.fps.error,
                 },
             },
-            "fan": self._sensors(),
+            "fan": dict(self._sensors(), restores=self._fan_restores,
+                        restored_ago=(round(time.monotonic() - self._fan_restored_at)
+                                      if self._fan_restored_at is not None else None)),
             "battery": {
                 "info": self._battery_info(),
                 "charge_limit": charge.get("enabled"),
                 "backend": charge.get("backend"),
             },
             "power_led": self._cached("led", self.led.get) if self.led.available else None,
-            "swap_menu": {"active": bool(self._cached("swap", self.swap.is_active))
+            "swap_menu": {"active": bool(self._cached(
+                "swap", lambda: self.swap.is_active(s["controls"]["swap_layout"])))
                           if s["controls"]["swap_menu"] else False},
         }

@@ -13,6 +13,11 @@ const BUTTONS: { key: RemapButton; label: string }[] = [
   { key: "M3", label: "M3 (right side, lower)" },
 ];
 
+const LAYOUTS = [
+  { data: "steam_menu", label: "Steam ↔ Menu, QAM ↔ View (default)" },
+  { data: "steam_view", label: "Steam ↔ View, QAM ↔ Menu" },
+];
+
 const ACTIONS: { data: string; label: string }[] = [
   { data: "none", label: "No action" },
   { data: "a", label: "A" },
@@ -57,11 +62,27 @@ export const ControlsTab: FC = () => {
             <PanelSectionRow>
               <ToggleField
                 label="Swap menu buttons"
-                description="View and Menu open Steam and Quick Access; the two Legion buttons become View and Menu."
+                description={
+                  c.swap_layout === "steam_view"
+                    ? "View opens Steam and Menu opens Quick Access; Legion L becomes View and Legion R becomes Menu."
+                    : "Menu opens Steam and View opens Quick Access; Legion L becomes Menu and Legion R becomes View."
+                }
                 checked={c.swap_menu}
                 onChange={(v) => update({ controls: { swap_menu: v } })}
               />
             </PanelSectionRow>
+            {c.swap_menu && (
+              <PanelSectionRow>
+                <DropdownItem
+                  label="Layout"
+                  rgOptions={LAYOUTS}
+                  selectedOption={c.swap_layout}
+                  onChange={(o) =>
+                    update({ controls: { swap_layout: o.data as "steam_menu" | "steam_view" } })
+                  }
+                />
+              </PanelSectionRow>
+            )}
             <ErrorRow message={status.errors.swap_menu} />
           </>
         )}
