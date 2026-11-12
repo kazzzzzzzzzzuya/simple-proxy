@@ -380,10 +380,16 @@ class Hub(object):
         managed_mode = self.active_profile()[1]["mode"] if power["enabled"] else None
         with self._hw:
             if conf["full_speed"]:
-                if self.fan.read_full_speed() is not False:
+                if self._fan_unverifiable or self.fan.read_full_speed() is not False:
                     return
                 self._log.info("Full fan speed was switched off by the firmware; turning it back on")
                 ok = self.fan.apply(conf["curve"], True)
+                if ok and self.fan.read_full_speed() is False:
+                    # The firmware takes the command but does not report it
+                    # as on: comparing would re-send it forever.
+                    self._fan_unverifiable = True
+                    self._log.warning("Full fan speed reads back as off right after "
+                                      "turning it on; not checking it any more")
             else:
                 if managed_mode not in (None, CUSTOM) or self._fan_unverifiable:
                     return

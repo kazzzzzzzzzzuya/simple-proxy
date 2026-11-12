@@ -175,7 +175,7 @@ Press **Calibrate** once and leave the controllers alone for a few seconds.
 
 ## Scope and limits
 
-- Used on a Legion Go (83E1), and verified with simulated hardware (124
+- Used on a Legion Go (83E1), and verified with simulated hardware (125
   automated tests). Every module reads the device state back after a change
   and reports it when a change did not take.
 - Legion Go 2 and Legion Go S are recognised for the parts that are known to

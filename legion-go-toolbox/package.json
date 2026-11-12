@@ -1,6 +1,6 @@
 {
   "name": "legion-go-toolbox",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Hardware controls for the Lenovo Legion Go on SteamOS",
   "type": "module",
   "scripts": {

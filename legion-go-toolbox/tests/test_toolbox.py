@@ -1357,6 +1357,19 @@ class HubTests(TempDirCase):
         self.hub._check_fan(30.0)
         self.assertFalse(f.full_speed)
 
+    def test_fan_watchdog_gives_up_when_full_speed_never_reads_on(self):
+        f = self.mods["fan"]
+        self.hub.update({"fan": {"enabled": True, "full_speed": True}})
+        f.read_full_speed = lambda: False              # firmware never reports it
+        self.hub._check_fan(10.0)
+        n = len(f.applied)
+        for t in (20.0, 30.0, 40.0):
+            self.hub._check_fan(t)
+        self.assertEqual(len(f.applied), n)            # sent once, then stopped
+        self.assertEqual(self.hub.status()["fan"]["restores"], 1)
+        self.hub.update({"fan": {"full_speed": False}})
+        self.assertFalse(self.hub._fan_unverifiable)   # a new setting is checked again
+
     def test_fan_watchdog_restores_the_curve(self):
         f = self.mods["fan"]
         self.hub.update({"fan": {"enabled": True,
