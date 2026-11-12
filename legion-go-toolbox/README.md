@@ -23,7 +23,7 @@ cannot do says so, with the reason, instead of pretending.
 |---|---|
 | **Home** | See every module at a glance, limit charging to 80 %, reset |
 | **Power** | Pick a power mode or set the TDP in watts, per game if you like. **Auto TDP** finds the lowest power that still holds a frame rate you choose |
-| **Fan** | Draw a ten-point fan curve, presets, full speed, live temperature |
+| **Fan** | Draw a ten-point fan curve, presets, full speed, live temperature, per game and on battery vs charger |
 | **Lights** | Stick lights: effect, colour, brightness, speed. Power-button light on/off, and off while sleeping |
 | **Controls** | Swap View/Menu with the Legion buttons, remap Y1 Y2 Y3 M2 M3, switch the touchpad off |
 | **Gyro** | Gyro in ordinary Steam games (handheld), and each detached controller as its own motion device for Dolphin, Switch emulators and others (DSU / CemuHook) |
@@ -107,6 +107,12 @@ overheating protection; the plugin only changes the table it follows.
   its own power changes) and puts them back. The Fan tab shows how often it
   had to.
 - The firmware uses a custom table only in the *Custom* power mode.
+- **Separate settings per game** and **Separate settings on charger** give a
+  game, the charger, or a game on the charger its own fan setting. The plugin
+  uses the most specific one that exists (this game on the charger → this
+  game → all games on the charger → all games) and switches by itself when a
+  game starts or closes and when you plug in or unplug. The controls always
+  edit the case you are in right now; *Saved fan settings* lists them all.
 
 ### Lights
 
@@ -188,7 +194,7 @@ Press **Calibrate** once and leave the controllers alone for a few seconds.
 
 ## Scope and limits
 
-- Used on a Legion Go (83E1), and verified with simulated hardware (127
+- Used on a Legion Go (83E1), and verified with simulated hardware (131
   automated tests). Every module reads the device state back after a change
   and reports it when a change did not take.
 - Legion Go 2 and Legion Go S are recognised for the parts that are known to

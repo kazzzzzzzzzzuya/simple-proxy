@@ -12,7 +12,7 @@ import time
 
 from . import config as cfg
 from . import controller, fan, fps_probe, sysio
-from .battery import ChargeLimit, battery_info
+from .battery import ChargeLimit, battery_info, on_external_power
 from .plumber import MenuSwap, SteamController
 from .power import CUSTOM, AutoTdp, FpsMonitor, PowerLimits, cpu_boost_state, set_cpu_boost
 from .powerled import PowerLed
@@ -26,6 +26,7 @@ TICK_S = 1.0
 REASSERT_S = 10.0
 SWAP_CHECK_S = 5.0
 FAN_CHECK_S = 5.0
+POWER_SOURCE_CHECK_S = 2.0
 RECONNECT_DELAY_S = 2.0
 RESUME_DELAY_S = 3.0
 
@@ -53,6 +54,7 @@ class Hub(object):
         self._send = m.get("send") or controller.send
         self._sensors = m.get("sensors") or fan.read_sensors
         self._battery_info = m.get("battery_info") or battery_info
+        self._read_on_ac = m.get("on_ac") or on_external_power
         self._set_boost = m.get("set_boost") or set_cpu_boost
         self._boost_state = m.get("boost_state") or cpu_boost_state
 
@@ -73,6 +75,9 @@ class Hub(object):
         self._fan_unverifiable = False
         self._fan_restores = 0
         self._fan_restored_at = None
+        self._fan_applied = None
+        self._on_ac = None
+        self._power_source_checked = 0.0
         self._reapply_controller_at = None
         self._reapply_all_at = None
         self._controller_seen = None
@@ -207,6 +212,7 @@ class Hub(object):
         self._app_name = str(name or "")[:120]
         self._auto = None
         self._apply_power(force=True)
+        self._refresh_fan()
         self._apply_steam_pad()
 
     def steam_controller_for(self, app=None):
@@ -370,12 +376,69 @@ class Hub(object):
         self._err("swap_menu", None if ok else self.swap.error)
 
     # ---- fan ---------------------------------------------------------------
+    def on_ac(self):
+        """True on the charger, False on battery (unknown counts as battery)."""
+        if self._on_ac is None:
+            try:
+                self._on_ac = self._read_on_ac()
+            except Exception:
+                self._on_ac = None
+        return bool(self._on_ac)
+
+    def fan_profile_chain(self, app=None, ac=None):
+        """Profile keys from most to least specific for a game and power
+        source; the first one that exists is used."""
+        f = self.settings["fan"]
+        app = self._app if app is None else app
+        ac = self.on_ac() if ac is None else ac
+        game = str(app) if (f["per_game"] and app is not None) else None
+        charger = bool(f["per_power"] and ac)
+        chain = []
+        if game and charger:
+            chain.append(game + ":ac")
+        if game:
+            chain.append(game)
+        if charger:
+            chain.append("default:ac")
+        chain.append("default")
+        return chain
+
+    def active_fan_profile(self):
+        profiles = self.settings["fan"]["profiles"]
+        for key in self.fan_profile_chain():
+            if key in profiles:
+                return key, profiles[key]
+        return "default", profiles["default"]
+
+    def fan_conf(self):
+        """The fan settings in effect right now."""
+        _, profile = self.active_fan_profile()
+        return {"enabled": self.settings["fan"]["enabled"],
+                "full_speed": profile["full_speed"], "curve": profile["curve"]}
+
+    def _refresh_fan(self):
+        """Apply the fan profile if the game or power source changed it."""
+        conf = self.fan_conf()
+        if not conf["enabled"] or self.product not in LEGION_GO:
+            return
+        if self._fan_applied != (conf["full_speed"], tuple(conf["curve"])):
+            self._apply_fan()
+
+    def delete_fan_profile(self, key):
+        with self._lock:
+            if key != "default" and key in self.settings["fan"]["profiles"]:
+                del self.settings["fan"]["profiles"][key]
+                self._save()
+        self._refresh_fan()
+        return self.get_settings()
+
     def _apply_fan(self, was_enabled=False):
-        conf = self.settings["fan"]
+        conf = self.fan_conf()
         if self.product not in LEGION_GO:
             return
         with self._hw:
             if not conf["enabled"]:
+                self._fan_applied = None
                 if was_enabled and self.fan.available():
                     self.fan.restore()
                 self._err("fan", None)
@@ -392,6 +455,8 @@ class Hub(object):
             ok = self.fan.apply(conf["curve"], conf["full_speed"],
                                 ensure_custom=managed_mode is None)
             self._fan_unverifiable = False
+            self._fan_applied = (conf["full_speed"], tuple(fan.sanitize_curve(conf["curve"]))) \
+                if ok else None
         self._err("fan", None if ok else self.fan.error)
 
     def _fan_check_soon(self):
@@ -406,7 +471,7 @@ class Hub(object):
         power mode changes - whoever changes it. Without this check the fan
         would silently fall back to the stock curve.
         """
-        conf = self.settings["fan"]
+        conf = self.fan_conf()
         if not conf["enabled"] or self.product not in LEGION_GO:
             return
         if not self.fan.available():
@@ -561,6 +626,17 @@ class Hub(object):
             if controls["swap_menu"] and self.swap.is_active(controls["swap_layout"]) is False:
                 self._apply_swap()
 
+        if now - self._power_source_checked >= POWER_SOURCE_CHECK_S:
+            self._power_source_checked = now
+            try:
+                ac = self._read_on_ac()
+            except Exception:
+                ac = None
+            if ac is not None and ac != self._on_ac:
+                self._log.info("Now %s", "on the charger" if ac else "on battery")
+                self._on_ac = ac
+                self._refresh_fan()
+
         if now - self._fan_checked >= FAN_CHECK_S:
             self._fan_checked = now
             self._check_fan(now)
@@ -651,6 +727,7 @@ class Hub(object):
                 },
             },
             "fan": dict(self._sensors(), restores=self._fan_restores,
+                        profile_key=self.active_fan_profile()[0], on_ac=self.on_ac(),
                         restored_ago=(round(time.monotonic() - self._fan_restored_at)
                                       if self._fan_restored_at is not None else None)),
             "battery": {

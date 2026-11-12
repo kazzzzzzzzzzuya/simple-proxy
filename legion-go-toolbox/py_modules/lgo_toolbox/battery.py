@@ -117,3 +117,42 @@ def battery_info(root=POWER_SUPPLY):
         return {"percent": cap,
                 "status": sysio.read_text(os.path.join(base, "status"), "")}
     return None
+
+
+def on_external_power(root=POWER_SUPPLY):
+    """True when a charger is connected, False on battery, None if unknown.
+
+    Chargers show up as power supplies of type Mains or USB with
+    ``online`` = 1. If none of them says, the battery's own status decides
+    (with the charge limit on, a connected charger can read "Not charging").
+    """
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return None
+    seen_supply = False
+    battery_status = None
+    for name in names:
+        base = os.path.join(root, name)
+        kind = sysio.read_text(os.path.join(base, "type"))
+        if kind == "Battery":
+            if sysio.read_text(os.path.join(base, "scope")) != "Device":
+                battery_status = sysio.read_text(os.path.join(base, "status"))
+            continue
+        if kind not in ("Mains", "USB", "USB_C", "USB_PD"):
+            continue
+        if sysio.read_text(os.path.join(base, "scope")) == "Device":
+            continue
+        online = sysio.read_int(os.path.join(base, "online"))
+        if online is None:
+            continue
+        seen_supply = True
+        if online == 1:
+            return True
+    if seen_supply:
+        return False
+    if battery_status in ("Charging", "Full", "Not charging"):
+        return True
+    if battery_status == "Discharging":
+        return False
+    return None

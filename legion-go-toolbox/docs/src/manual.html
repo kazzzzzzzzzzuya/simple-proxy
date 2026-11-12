@@ -31,7 +31,7 @@
 <!-- ============================== COVER ============================== -->
 <section class="cover">
   <div class="top">
-    <div class="kicker">User manual · Version 2.3</div>
+    <div class="kicker">User manual · Version 2.4</div>
     <h1>Legion Go Toolbox</h1>
     <div class="sub">The Lenovo Legion Go's hardware controls in the Steam Quick Access menu: power and automatic TDP, fan, lights, battery, buttons and gyro.</div>
     <div class="tabs"><span>Home</span><span>Power</span><span>Fan</span><span>Lights</span><span>Controls</span><span>Gyro</span></div>
@@ -242,6 +242,29 @@
   <h2>Full speed</h2>
   <p>Runs the fan at maximum, ignoring the curve.</p>
 
+  <h2 style="break-before: page">Per game and on charger</h2>
+  <p>Two switches let the fan setting depend on what you are doing:</p>
+  <ul>
+    <li><b>Separate settings per game</b> - a game can have its own setting.</li>
+    <li><b>Separate settings on charger</b> - one setting on battery, another while plugged in.</li>
+  </ul>
+  <p>With both on there are up to four kinds of setting. The plugin uses the most specific one that exists:</p>
+  <table>
+    <tr><th>Order</th><th>Setting</th><th>Example</th></tr>
+    <tr><td>1</td><td>This game, on the charger</td><td>Elden Ring plugged in: full speed</td></tr>
+    <tr><td>2</td><td>This game</td><td>Elden Ring on battery: Balanced</td></tr>
+    <tr><td>3</td><td>All games, on the charger</td><td>Anything else plugged in: Cool</td></tr>
+    <tr><td>4</td><td>All games</td><td>Anything else on battery: Silent</td></tr>
+  </table>
+  <p>It switches by itself when a game starts or closes and within two seconds of plugging in or unplugging.</p>
+  <h3>Making a setting</h3>
+  <ol class="steps">
+    <li>Get into the situation you want to set up - start the game, and plug in or unplug.</li>
+    <li>Open the Fan tab. The heading names what you are editing, for example <i>ELDEN RING · on charger</i>. Until you change something it says <i>Using the general setting</i> and which one.</li>
+    <li>Change the preset, the curve or full speed. From then on that case has its own setting.</li>
+  </ol>
+  <p><b>Use the general setting here</b> removes the setting you are looking at. <b>Saved fan settings</b> lists every setting with its preset; selecting one removes it.</p>
+
   <h2>Why a setting can "turn itself off" - and what the plugin does</h2>
   <p>The firmware throws away <i>full speed</i> and the custom curve whenever the power mode changes - no matter whether Steam, another tool, Auto TDP or a manual change caused it. The fan then quietly falls back to the stock curve and temperatures climb.</p>
   <p>The plugin therefore reads both back from the firmware every 5 seconds, and one second after each of its own power changes, and puts them back when they are gone. When this has happened the Fan tab shows a <b>Kept on</b> line, for example <i>The firmware dropped the fan setting 3 times (last just now); the plugin put it back.</i></p>
@@ -418,6 +441,8 @@
     <tr><td>Plugin start</td><td>Everything you switched on</td></tr>
     <tr><td>Waking from sleep</td><td>Everything, 3 seconds after waking; the power light is restored right away</td></tr>
     <tr><td>Controllers reconnect</td><td>Stick lights, remapping, touchpad</td></tr>
+    <tr><td>A game starts or closes</td><td>Its power profile, fan setting and controller type (only what differs)</td></tr>
+    <tr><td>Charger plugged in or out</td><td>The fan setting, within 2 seconds (when <i>Separate settings on charger</i> is on)</td></tr>
     <tr><td>Every 5 seconds</td><td>Fan full speed / curve (if dropped), menu-button swap and controller type (if InputPlumber restarted)</td></tr>
     <tr><td>Every 10 seconds</td><td>Power mode and TDP, if something else changed them</td></tr>
   </table>
@@ -430,7 +455,7 @@
   </table>
 
   <h2>Testing status</h2>
-  <p>Besides use on a Legion Go (83E1), every module is covered by automated tests with simulated hardware (127 tests), and every module reads the hardware back after a change and reports it when a change did not take.</p>
+  <p>Besides use on a Legion Go (83E1), every module is covered by automated tests with simulated hardware (131 tests), and every module reads the hardware back after a change and reports it when a change did not take.</p>
 
   <h2>Credits</h2>
   <p class="muted">Legion Go Toolbox is its own code, built on what these projects worked out about the hardware: Handheld Daemon and hwinfo (controller protocol, Lenovo firmware methods and fan minimum), Legion Center and LegionGoRemapper (remapping, fan table, charge limit), HueSync (power light), SimpleDeckyTDP (power limits), DeckyPlumber and InputPlumber (menu-button swap), Panel de Control (frame times from gamescope), decky-lsfg-vk (tabs) and Legion Go 2 Companion (overview layout).</p>

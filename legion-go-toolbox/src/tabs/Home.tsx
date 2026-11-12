@@ -35,14 +35,23 @@ export const HomeTab: FC<{ go: (tab: string) => void }> = ({ go }) => {
 
   const fanLine = () => {
     const temp = status.fan.temp != null ? `${status.fan.temp} °C` : null;
-    const mode = !caps.fan.available
+    const f = settings.fan;
+    const key = status.fan.profile_key ?? "default";
+    const p = f.profiles[key] ?? f.profiles.default;
+    const mode = !caps.fan.available || !f.enabled
       ? "Firmware curve"
-      : !settings.fan.enabled
-        ? "Firmware curve"
-        : settings.fan.full_speed
-          ? "Full speed"
-          : "Custom curve";
-    return [mode, temp].filter(Boolean).join(" · ");
+      : p.full_speed
+        ? "Full speed"
+        : "Custom curve";
+    const which =
+      f.enabled && key !== "default"
+        ? key === "default:ac"
+          ? "charger setting"
+          : key.endsWith(":ac")
+            ? "game's charger setting"
+            : "game's setting"
+        : null;
+    return [mode, which, temp].filter(Boolean).join(" · ");
   };
 
   const lightsLine = () => {

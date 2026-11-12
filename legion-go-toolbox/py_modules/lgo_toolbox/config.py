@@ -42,8 +42,10 @@ def defaults():
         "battery": {"charge_limit": None},
         "fan": {
             "enabled": False,
-            "full_speed": False,
-            "curve": list(fan.DEFAULT_CURVE),
+            "per_game": False,
+            "per_power": False,
+            # "default", "default:ac", "<appid>", "<appid>:ac" -> profile
+            "profiles": {"default": fan_profile_default()},
         },
         "power": {
             "enabled": False,
@@ -62,6 +64,33 @@ def defaults():
             "touchpad": None,
         },
     }
+
+
+def fan_profile_default():
+    return {"full_speed": False, "curve": list(fan.DEFAULT_CURVE), "name": ""}
+
+
+def _fan_key_ok(key):
+    if not isinstance(key, str):
+        return False
+    base, _, suffix = key.partition(":")
+    if suffix not in ("", "ac"):
+        return False
+    return base == "default" or (base.isdigit() and len(base) <= 12)
+
+
+def sanitize_fan_profile(src, base):
+    out = dict(base)
+    if not isinstance(src, dict):
+        return out
+    out["full_speed"] = _flag(src.get("full_speed"), out["full_speed"])
+    try:
+        out["curve"] = list(fan.sanitize_curve(src.get("curve")))
+    except ValueError:
+        out["curve"] = list(out["curve"])
+    name = src.get("name")
+    out["name"] = name[:120] if isinstance(name, str) else out.get("name", "")
+    return out
 
 
 def _flag(value, fallback):
@@ -125,12 +154,28 @@ def sanitize(data):
 
     f = data.get("fan")
     if isinstance(f, dict):
-        out["fan"]["enabled"] = _flag(f.get("enabled"), False)
-        out["fan"]["full_speed"] = _flag(f.get("full_speed"), False)
-        try:
-            out["fan"]["curve"] = list(fan.sanitize_curve(f.get("curve")))
-        except ValueError:
-            pass
+        d = out["fan"]
+        d["enabled"] = _flag(f.get("enabled"), False)
+        d["per_game"] = _flag(f.get("per_game"), False)
+        d["per_power"] = _flag(f.get("per_power"), False)
+        profiles = f.get("profiles") if isinstance(f.get("profiles"), dict) else {}
+        default = sanitize_fan_profile(profiles.get("default"), fan_profile_default())
+        # Version 2.3 and older kept one curve at the top level; a patch may
+        # also still address the default profile that way.
+        legacy = {k: f[k] for k in ("full_speed", "curve") if k in f}
+        if legacy:
+            default = sanitize_fan_profile(dict(default, **legacy), default)
+        default["name"] = ""
+        d["profiles"] = {"default": default}
+        keys = [k for k in list(profiles)[:1000] if k != "default" and _fan_key_ok(k)]
+        # Plain keys first, so a ":ac" profile can start from its game's one.
+        for key in sorted(keys, key=lambda k: (k.endswith(":ac"), k)):
+            base = key.partition(":")[0]
+            if key.endswith(":ac"):
+                parent = d["profiles"].get(base) or d["profiles"].get("default:ac") or default
+            else:
+                parent = default
+            d["profiles"][key] = sanitize_fan_profile(profiles[key], parent)
 
     p = data.get("power")
     if isinstance(p, dict):

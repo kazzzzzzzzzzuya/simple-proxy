@@ -576,6 +576,27 @@ class PowerSysfs(TempDirCase):
         no_attrs = power.PowerLimits("/nonexistent", self.pp, "/nonexistent")
         self.assertIn("power limits", no_attrs.unavailable_reason())
 
+    def test_charger_detection(self):
+        root = os.path.join(self.tmp, "ps")
+        self.assertIsNone(battery.on_external_power(os.path.join(self.tmp, "none")))
+        write(os.path.join(root, "BAT0", "type"), "Battery\n")
+        write(os.path.join(root, "BAT0", "status"), "Discharging\n")
+        self.assertFalse(battery.on_external_power(root))     # battery only
+        write(os.path.join(root, "BAT0", "status"), "Not charging\n")
+        self.assertTrue(battery.on_external_power(root))      # charge limit reached
+        write(os.path.join(root, "ucsi-source-psy-USBC000:001", "type"), "USB\n")
+        write(os.path.join(root, "ucsi-source-psy-USBC000:001", "online"), "0\n")
+        write(os.path.join(root, "ADP0", "type"), "Mains\n")
+        write(os.path.join(root, "ADP0", "online"), "0\n")
+        self.assertFalse(battery.on_external_power(root))     # supplies say no
+        write(os.path.join(root, "ucsi-source-psy-USBC000:001", "online"), "1\n")
+        self.assertTrue(battery.on_external_power(root))
+        write(os.path.join(root, "ucsi-source-psy-USBC000:001", "online"), "0\n")
+        write(os.path.join(root, "hid-mouse", "type"), "USB\n")
+        write(os.path.join(root, "hid-mouse", "scope"), "Device\n")
+        write(os.path.join(root, "hid-mouse", "online"), "1\n")
+        self.assertFalse(battery.on_external_power(root))     # a gadget's battery
+
     def test_cpu_boost(self):
         root = os.path.join(self.tmp, "cpu")
         self.assertIsNone(power.cpu_boost_state(root))
@@ -891,7 +912,7 @@ class Config(unittest.TestCase):
         self.assertEqual((s["mode"], s["color"], s["brightness"], s["managed"]),
                          ("solid", [0, 140, 255], 1.0, False))
         self.assertIsNone(d["battery"]["charge_limit"])
-        self.assertEqual(d["fan"]["curve"], list(cfg.fan.DEFAULT_CURVE))
+        self.assertEqual(d["fan"]["profiles"]["default"]["curve"], list(cfg.fan.DEFAULT_CURVE))
         p = d["power"]["profiles"]
         self.assertEqual(sorted(p), ["1234", "default"])
         self.assertEqual((p["default"]["tdp"], p["default"]["min_tdp"],
@@ -917,9 +938,22 @@ class Config(unittest.TestCase):
                          ["controls"]["steam_controller"], "xbox")
         self.assertEqual(cfg.sanitize(cfg.sanitize(old)), cfg.sanitize(old))
 
+    def test_fan_profiles_schema(self):
+        # 2.3 files: one curve at the top level becomes the default profile
+        d = cfg.sanitize({"fan": {"enabled": True, "full_speed": True,
+                                  "curve": list(cfg.fan.PRESETS["performance"])}})
+        self.assertEqual(d["fan"]["profiles"], {"default": {
+            "full_speed": True, "curve": list(cfg.fan.PRESETS["performance"]), "name": ""}})
+        self.assertNotIn("curve", d["fan"])
+        d = cfg.sanitize({"fan": {"profiles": {"7:ac": {}, "7": {"curve": [90] * 10},
+                                               "abc": {}, "7:dc": {}, "../1": {}}}})
+        self.assertEqual(sorted(d["fan"]["profiles"]), ["7", "7:ac", "default"])
+        self.assertEqual(d["fan"]["profiles"]["7:ac"]["curve"][0], 90)   # from its game
+        self.assertEqual(cfg.sanitize(d), d)
+
     def test_fan_curve_is_made_safe_on_load(self):
         d = cfg.sanitize({"fan": {"curve": [0] * 10}})
-        self.assertEqual(d["fan"]["curve"], list(cfg.fan.SAFETY_FLOOR))
+        self.assertEqual(d["fan"]["profiles"]["default"]["curve"], list(cfg.fan.SAFETY_FLOOR))
 
 
 class FakeLimits(object):
@@ -1100,6 +1134,7 @@ class HubTests(TempDirCase):
     def setUp(self):
         TempDirCase.setUp(self)
         self.sent = []
+        self.ac = False
         self.send_error = None
         self.boost = []
         self.mods = {
@@ -1109,6 +1144,7 @@ class HubTests(TempDirCase):
             "send": self._send, "sensors": lambda: {"temp": 55, "rpm": None},
             "battery_info": lambda: {"percent": 80, "status": "Charging"},
             "set_boost": lambda v: self.boost.append(v) or True,
+            "on_ac": lambda: self.ac,
             "boost_state": lambda: None,
         }
         self.path = os.path.join(self.tmp, "toolbox.json")
@@ -1393,6 +1429,60 @@ class HubTests(TempDirCase):
         f.ok = False
         self.hub.update({"fan": {"enabled": True}})
         self.assertIn("acpi_call", self.hub.errors["fan"])
+
+    def test_fan_profiles_per_game_and_charger(self):
+        f = self.mods["fan"]
+        P = cfg.fan.PRESETS
+        self.hub.update({"fan": {"enabled": True, "per_game": True, "per_power": True,
+                                 "profiles": {
+                                     "default": {"curve": list(P["silent"])},
+                                     "default:ac": {"curve": list(P["performance"])},
+                                     "1245620": {"curve": list(P["balanced"]), "name": "ELDEN RING"},
+                                     "1245620:ac": {"full_speed": True}}}})
+        self.assertEqual(f.applied[-1][:2], (P["silent"], False))      # library, battery
+        # Plug in: the charger profile
+        self.ac = True
+        self.hub._tick(1000.0)
+        self.assertEqual(f.applied[-1][:2], (P["performance"], False))
+        self.assertEqual(self.hub.status()["fan"]["profile_key"], "default:ac")
+        # Start the game on the charger: its charger profile (full speed)
+        self.hub.set_running_app(1245620, "ELDEN RING")
+        self.assertEqual(f.applied[-1][1], True)
+        # Unplug: the game's battery profile
+        self.ac = False
+        self.hub._tick(1003.0)
+        self.assertEqual(f.applied[-1][:2], (P["balanced"], False))
+        # Nothing changes: nothing is re-sent
+        n = len(f.applied)
+        self.hub._tick(1006.0)
+        self.hub.set_running_app(1245620, "ELDEN RING")
+        self.assertEqual(len(f.applied), n)
+        # A game without its own profile on battery: the default
+        self.hub.set_running_app(400, "Portal")
+        self.assertEqual(f.applied[-1][:2], (P["silent"], False))
+        # Removing the game's battery profile: it falls back to the default
+        self.hub.set_running_app(1245620, "ELDEN RING")
+        self.hub.delete_fan_profile("1245620")
+        self.assertEqual(f.applied[-1][:2], (P["silent"], False))
+        self.assertNotIn("1245620", self.hub.get_settings()["fan"]["profiles"])
+        # Its charger profile is still used on the charger
+        self.ac = True
+        self.hub._tick(1010.0)
+        self.assertEqual(f.applied[-1][1], True)
+        # With the separations off everything uses the default
+        self.hub.update({"fan": {"per_game": False, "per_power": False}})
+        self.assertEqual(f.applied[-1][:2], (P["silent"], False))
+        self.assertEqual(self.hub.fan_profile_chain(), ["default"])
+        # Saved
+        self.assertIn("1245620:ac", cfg.load(self.path)["fan"]["profiles"])
+
+    def test_fan_profile_chain(self):
+        self.hub.update({"fan": {"per_game": True, "per_power": True}})
+        self.assertEqual(self.hub.fan_profile_chain(app=5, ac=True),
+                         ["5:ac", "5", "default:ac", "default"])
+        self.assertEqual(self.hub.fan_profile_chain(app=5, ac=False), ["5", "default"])
+        self.hub.set_running_app(None, "")
+        self.assertEqual(self.hub.fan_profile_chain(ac=True), ["default:ac", "default"])
 
     def test_fan_watchdog_restores_full_speed(self):
         f = self.mods["fan"]

@@ -20,6 +20,12 @@ export interface PowerProfile {
   min_tdp: number;
 }
 
+export interface FanProfile {
+  full_speed: boolean;
+  curve: number[];
+  name: string;
+}
+
 export interface Settings {
   lighting: {
     sticks: {
@@ -33,7 +39,13 @@ export interface Settings {
     power_led: { managed: boolean; on: boolean; off_in_sleep: boolean };
   };
   battery: { charge_limit: boolean | null };
-  fan: { enabled: boolean; full_speed: boolean; curve: number[] };
+  fan: {
+    enabled: boolean;
+    per_game: boolean;
+    per_power: boolean;
+    /** "default", "default:ac", "<appid>", "<appid>:ac" */
+    profiles: Record<string, FanProfile>;
+  };
   power: {
     enabled: boolean;
     per_game: boolean;
@@ -103,6 +115,9 @@ export interface HubStatus {
     /** How often the plugin had to put the fan setting back. */
     restores: number;
     restored_ago: number | null;
+    /** The fan profile in use and whether a charger is connected. */
+    profile_key: string;
+    on_ac: boolean;
   };
   battery: {
     info: { percent: number; status: string } | null;
@@ -129,6 +144,7 @@ export const deletePowerProfile = callable<[key: string], Settings>("delete_powe
 export const setRunningApp = callable<[appId: number | null, name: string], void>(
   "set_running_app",
 );
+export const deleteFanProfile = callable<[key: string], Settings>("delete_fan_profile");
 export const setGameController = callable<
   [appId: number, kind: string | null, name: string],
   Settings

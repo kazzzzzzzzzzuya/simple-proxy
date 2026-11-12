@@ -1,7 +1,16 @@
-import { DropdownItem, Field, PanelSection, PanelSectionRow, SliderField, ToggleField } from "@decky/ui";
+import {
+  ButtonItem,
+  DropdownItem,
+  Field,
+  PanelSection,
+  PanelSectionRow,
+  SliderField,
+  ToggleField,
+} from "@decky/ui";
 import { FC } from "react";
 
-import { update, useStore } from "../store";
+import { deleteFanProfile, FanProfile } from "../backend";
+import { replaceSettings, update, useStore } from "../store";
 import { ACCENT, ErrorRow, Info, Unavailable } from "../ui";
 
 const TEMPS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
@@ -60,6 +69,20 @@ const CurvePreview: FC<{ curve: number[]; temp: number | null }> = ({ curve, tem
   );
 };
 
+/** Readable name of a fan profile key. */
+function keyLabel(key: string, profiles: Record<string, FanProfile>, perPower: boolean): string {
+  const [base, suffix] = key.split(":");
+  const who = base === "default" ? "All games" : profiles[key]?.name || profiles[base]?.name || `App ${base}`;
+  if (suffix === "ac") return `${who} · on charger`;
+  return perPower ? `${who} · on battery` : who;
+}
+
+function profileSummary(p: FanProfile): string {
+  if (p.full_speed) return "Full speed";
+  const preset = presetOf(p.curve);
+  return preset === "custom" ? "Custom curve" : (PRESET_OPTIONS.find((o) => o.data === preset)?.label ?? "");
+}
+
 export const FanTab: FC = () => {
   const { state } = useStore();
   if (!state) return null;
@@ -69,13 +92,43 @@ export const FanTab: FC = () => {
   const reading = [
     sensors.temp != null ? `${sensors.temp} °C` : null,
     sensors.rpm != null ? `${sensors.rpm} RPM` : null,
+    f.per_power ? (sensors.on_ac ? "on charger" : "on battery") : null,
   ]
     .filter(Boolean)
     .join(" · ");
+
+  // Which profile the controls below edit: the running game and the power
+  // source, as far as the two switches separate them.
+  const app = status.app;
+  const gamePart = f.per_game && app.id != null ? String(app.id) : "default";
+  const editKey = gamePart + (f.per_power && sensors.on_ac ? ":ac" : "");
+  const inUse = f.profiles[sensors.profile_key] ?? f.profiles.default;
+  const profile: FanProfile = f.profiles[editKey] ?? inUse;
+  const editingOwn = editKey in f.profiles;
+  const setProfile = (patch: Partial<FanProfile>) =>
+    update({
+      fan: {
+        profiles: {
+          [editKey]: {
+            ...profile,
+            ...patch,
+            name: gamePart === "default" ? "" : app.name || profile.name || "",
+          },
+        },
+      },
+    });
+  const removeProfile = async (key: string) => replaceSettings(await deleteFanProfile(key));
+
   const powerMode = settings.power.enabled
     ? (settings.power.profiles[status.power.profile_key] ?? settings.power.profiles.default).mode
     : null;
-  const waitingForCustom = f.enabled && !f.full_speed && powerMode != null && powerMode !== "custom";
+  const waitingForCustom =
+    f.enabled && !inUse.full_speed && powerMode != null && powerMode !== "custom";
+  const saved = Object.keys(f.profiles)
+    .filter((k) => k !== "default")
+    .sort((a, b) =>
+      keyLabel(a, f.profiles, f.per_power).localeCompare(keyLabel(b, f.profiles, f.per_power)),
+    );
 
   if (!caps.fan.available) {
     return (
@@ -95,68 +148,98 @@ export const FanTab: FC = () => {
   }
 
   return (
-    <PanelSection title="Fan">
-      <PanelSectionRow>
-        <ToggleField
-          label="Custom fan curve"
-          description="The firmware still controls the fan and its overheating protection; this only changes the curve it follows."
-          checked={f.enabled}
-          onChange={(v) => update({ fan: { enabled: v } })}
-        />
-      </PanelSectionRow>
-      {reading && <Info label="Now">{reading}</Info>}
-      <ErrorRow message={status.errors.fan} />
-      {f.enabled && sensors.restores > 0 && (
-        <Info label="Kept on">
-          {`The firmware dropped the fan setting ${sensors.restores === 1 ? "once" : `${sensors.restores} times`}${
-            sensors.restored_ago != null ? ` (last ${agoText(sensors.restored_ago)})` : ""
-          }; the plugin put it back. This happens when the power mode changes.`}
-        </Info>
-      )}
-      {waitingForCustom && (
-        <Info label="Not in use right now" warn>
-          The firmware only follows a custom curve in the Custom power mode.
-        </Info>
-      )}
+    <>
+      <PanelSection title="Fan">
+        <PanelSectionRow>
+          <ToggleField
+            label="Custom fan curve"
+            description="The firmware still controls the fan and its overheating protection; this only changes the curve it follows."
+            checked={f.enabled}
+            onChange={(v) => update({ fan: { enabled: v } })}
+          />
+        </PanelSectionRow>
+        {reading && <Info label="Now">{reading}</Info>}
+        <ErrorRow message={status.errors.fan} />
+        {f.enabled && sensors.restores > 0 && (
+          <Info label="Kept on">
+            {`The firmware dropped the fan setting ${sensors.restores === 1 ? "once" : `${sensors.restores} times`}${
+              sensors.restored_ago != null ? ` (last ${agoText(sensors.restored_ago)})` : ""
+            }; the plugin put it back. This happens when the power mode changes.`}
+          </Info>
+        )}
+        {waitingForCustom && (
+          <Info label="Not in use right now" warn>
+            The firmware only follows a custom curve in the Custom power mode.
+          </Info>
+        )}
+        {f.enabled && (
+          <>
+            <PanelSectionRow>
+              <ToggleField
+                label="Separate settings per game"
+                description="A game can have its own fan setting; others use the general one."
+                checked={f.per_game}
+                onChange={(v) => update({ fan: { per_game: v } })}
+              />
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ToggleField
+                label="Separate settings on charger"
+                description="One setting on battery and another while plugged in. Switches by itself when you plug in or unplug."
+                checked={f.per_power}
+                onChange={(v) => update({ fan: { per_power: v } })}
+              />
+            </PanelSectionRow>
+          </>
+        )}
+      </PanelSection>
+
       {f.enabled && (
-        <>
+        <PanelSection title={keyLabel(editKey, { ...f.profiles, [editKey]: { ...profile, name: app.name || profile.name } }, f.per_power)}>
+          {editKey !== "default" && (
+            <Info label={editingOwn ? "Its own setting" : "Using the general setting"}>
+              {editingOwn
+                ? "Changes below apply only here."
+                : `Now uses: ${keyLabel(sensors.profile_key, f.profiles, f.per_power)}. Change anything below to give it its own setting.`}
+            </Info>
+          )}
           <PanelSectionRow>
             <ToggleField
               label="Full speed"
               description="Runs the fan flat out, ignoring the curve. The plugin checks every few seconds and turns it back on if the firmware switches it off."
-              checked={f.full_speed}
-              onChange={(v) => update({ fan: { full_speed: v } })}
+              checked={profile.full_speed}
+              onChange={(v) => setProfile({ full_speed: v })}
             />
           </PanelSectionRow>
-          {!f.full_speed && (
+          {!profile.full_speed && (
             <>
               <PanelSectionRow>
                 <DropdownItem
                   label="Preset"
                   rgOptions={PRESET_OPTIONS}
-                  selectedOption={presetOf(f.curve)}
+                  selectedOption={presetOf(profile.curve)}
                   onChange={(o) => {
                     const preset = PRESETS[o.data as string];
-                    if (preset) update({ fan: { curve: preset.slice() } });
+                    if (preset) setProfile({ curve: preset.slice() });
                   }}
                 />
               </PanelSectionRow>
               <PanelSectionRow>
                 <Field childrenLayout="below" bottomSeparator="none" padding="compact">
-                  <CurvePreview curve={f.curve} temp={sensors.temp} />
+                  <CurvePreview curve={profile.curve} temp={sensors.temp} />
                 </Field>
               </PanelSectionRow>
               {TEMPS.map((t, i) => (
                 <PanelSectionRow key={t}>
                   <SliderField
                     label={`At ${t} °C`}
-                    value={f.curve[i]}
+                    value={profile.curve[i]}
                     min={FLOOR[i]}
                     max={MAX_LEVEL}
                     step={1}
                     showValue
                     valueSuffix="%"
-                    onChange={(v) => update({ fan: { curve: withPoint(f.curve, i, v) } })}
+                    onChange={(v) => setProfile({ curve: withPoint(profile.curve, i, v) })}
                   />
                 </PanelSectionRow>
               ))}
@@ -166,8 +249,38 @@ export const FanTab: FC = () => {
               </Info>
             </>
           )}
-        </>
+          {editingOwn && editKey !== "default" && (
+            <PanelSectionRow>
+              <ButtonItem layout="below" onClick={() => void removeProfile(editKey)}>
+                Use the general setting here
+              </ButtonItem>
+            </PanelSectionRow>
+          )}
+        </PanelSection>
       )}
-    </PanelSection>
+
+      {f.enabled && saved.length > 0 && (
+        <PanelSection title="Saved fan settings">
+          <PanelSectionRow>
+            <Field
+              description="Select one to remove it; that case then uses the general setting again."
+              padding="compact"
+              bottomSeparator="none"
+            />
+          </PanelSectionRow>
+          {saved.map((key) => (
+            <PanelSectionRow key={key}>
+              <ButtonItem
+                layout="below"
+                description={profileSummary(f.profiles[key])}
+                onClick={() => void removeProfile(key)}
+              >
+                {keyLabel(key, f.profiles, f.per_power)}
+              </ButtonItem>
+            </PanelSectionRow>
+          ))}
+        </PanelSection>
+      )}
+    </>
   );
 };
