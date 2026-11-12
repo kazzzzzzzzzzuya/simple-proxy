@@ -42,6 +42,8 @@ export interface Settings {
   };
   controls: {
     swap_menu: boolean;
+    /** "default" (Xbox pad, no gyro) or a gyro-capable type Steam knows. */
+    steam_controller: string;
     remap_managed: boolean;
     remap: Record<RemapButton, string>;
     touchpad: boolean | null;
@@ -67,8 +69,11 @@ export type CapName =
   | "power_led"
   | "sticks"
   | "remap"
-  | "swap_menu";
-export type Caps = Record<CapName, Capability>;
+  | "swap_menu"
+  | "steam_gyro";
+export type Caps = Record<CapName, Capability> & {
+  steam_gyro: Capability & { types: string[] };
+};
 
 export interface HubStatus {
   model: string;

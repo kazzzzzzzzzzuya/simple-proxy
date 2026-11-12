@@ -75,7 +75,8 @@ export const HomeTab: FC<{ go: (tab: string) => void }> = ({ go }) => {
     const live = (["left", "right"] as const).filter((n) => g.slots[n].live).length;
     const who =
       g.server.clients === 1 ? "1 emulator connected" : `${g.server.clients} emulators connected`;
-    return `${live} of 2 controllers sending motion · ${who}`;
+    const steam = settings.controls.steam_controller !== "default" ? " · Steam gyro on" : "";
+    return `${live} of 2 controllers sending motion · ${who}${steam}`;
   };
 
   const onReset = async () => {

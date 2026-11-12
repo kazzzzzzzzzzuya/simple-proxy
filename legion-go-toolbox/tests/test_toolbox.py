@@ -444,6 +444,43 @@ class Plumber(TempDirCase):
         self.assertEqual(state["loaded"], DEFAULT_PROFILE_YAML.strip())
         self.assertFalse(swap.is_active())
 
+    def test_steam_controller_type(self):
+        calls = []
+        state = {"stamp": "100", "manager": True}
+
+        def runner(cmd, timeout=5.0):
+            calls.append(cmd)
+            if cmd[0] == "systemctl":
+                return 0, state["stamp"] + "\n", ""
+            if cmd[1] == "get-property" and cmd[-1] == "SupportedTargetDeviceIds":
+                if not state["manager"]:
+                    return 1, "", "Unknown property"
+                return 0, 'as 4 "xb360" "ds5" "deck-uhid" "xbox-elite"\n', ""
+            if cmd[1] == "get-property":
+                return (0, 's "Default"\n', "") if cmd[3].endswith("Device0") else (1, "", "")
+            return 0, "", ""
+
+        path = os.path.join(self.tmp, "pad")
+        pad = plumber.SteamController(runner=runner, state_file=path)
+        self.assertEqual(pad.supported(), ["deck-uhid", "ds5"])
+        state["manager"] = False
+        self.assertEqual(pad.supported(), ["deck-uhid", "ds5-edge", "ds5"])
+        self.assertFalse(pad.needs_apply("default"))
+        self.assertTrue(pad.needs_apply("deck-uhid"))
+        self.assertTrue(pad.apply("deck-uhid"))
+        self.assertEqual(calls[-2][-6:], ["SetTargetDevices", "as", "3",
+                                          "deck-uhid", "keyboard", "mouse"])
+        self.assertFalse(pad.needs_apply("deck-uhid"))
+        # A reloaded plugin knows what InputPlumber was told
+        again = plumber.SteamController(runner=runner, state_file=path)
+        self.assertFalse(again.needs_apply("deck-uhid"))
+        self.assertTrue(again.needs_apply("default"))
+        state["stamp"] = "200"                            # service restarted
+        self.assertTrue(again.needs_apply("deck-uhid"))
+        self.assertTrue(again.apply("default"))
+        self.assertEqual(calls[-2][-5:], ["4", "xbox-elite", "mouse", "keyboard", "touchpad"])
+        self.assertFalse(again.apply("ps9"))
+
     def test_not_running(self):
         swap, _ = self._swap({"running": False})
         self.assertFalse(swap.available())
@@ -957,6 +994,26 @@ class FakeSwap(object):
         return True
 
 
+class FakeSteamPad(object):
+    def __init__(self):
+        self.kind = "default"
+        self.applies = []
+        self.restarted = False
+        self.error = None
+
+    def supported(self):
+        return ["deck-uhid", "ds5-edge", "ds5"]
+
+    def needs_apply(self, kind):
+        return self.restarted or kind != self.kind
+
+    def apply(self, kind):
+        self.kind = kind
+        self.restarted = False
+        self.applies.append(kind)
+        return True
+
+
 class FakeFps(object):
     def __init__(self):
         self.app = None
@@ -986,6 +1043,7 @@ class HubTests(TempDirCase):
         self.mods = {
             "limits": FakeLimits(), "fan": FakeFan(), "charge": FakeCharge(),
             "led": FakeLed(), "swap": FakeSwap(), "fps": FakeFps(),
+            "steam_pad": FakeSteamPad(),
             "send": self._send, "sensors": lambda: {"temp": 55, "rpm": None},
             "battery_info": lambda: {"percent": 80, "status": "Charging"},
             "set_boost": lambda v: self.boost.append(v) or True,
@@ -1093,6 +1151,31 @@ class HubTests(TempDirCase):
         swap.running = False
         self.hub.update({"controls": {"swap_menu": True}})
         self.assertEqual(self.hub.errors["swap_menu"], "InputPlumber is not running")
+
+    def test_steam_gyro_controller_type(self):
+        pad, swap = self.mods["steam_pad"], self.mods["swap"]
+        self.assertEqual(self.hub.capabilities(True)["steam_gyro"]["types"],
+                         ["deck-uhid", "ds5-edge", "ds5"])
+        self.hub.apply_all("test")
+        self.assertEqual(pad.applies, [])                 # default: untouched
+        self.hub.update({"controls": {"swap_menu": True}})
+        orig_sleep = time.sleep
+        time.sleep = lambda s: None
+        self.addCleanup(setattr, time, "sleep", orig_sleep)
+        swap.active = False                               # new pad drops the profile
+        self.hub.update({"controls": {"steam_controller": "deck-uhid"}})
+        self.assertEqual(pad.applies, ["deck-uhid"])
+        self.assertTrue(swap.active)                      # swap put back on top
+        self.hub._tick(500.0)
+        self.hub.apply_all("resume")
+        self.assertEqual(pad.applies, ["deck-uhid"])      # no needless reconnects
+        pad.restarted = True                              # InputPlumber restarted
+        self.hub._tick(600.0)
+        self.assertEqual(pad.applies, ["deck-uhid", "deck-uhid"])
+        self.hub.update({"controls": {"steam_controller": "default"}})
+        self.assertEqual(pad.applies[-1], "default")
+        self.assertEqual(cfg.sanitize({"controls": {"steam_controller": "ps9"}})
+                         ["controls"]["steam_controller"], "default")
 
     def test_manual_tdp_and_modes(self):
         limits = self.mods["limits"]

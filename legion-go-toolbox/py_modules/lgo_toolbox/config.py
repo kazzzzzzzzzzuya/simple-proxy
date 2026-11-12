@@ -14,6 +14,7 @@ POWER_PROFILE_DEFAULT = {
     "target_fps": 60,
     "min_tdp": 8,
 }
+STEAM_CONTROLLERS = ("default", "deck-uhid", "ds5-edge", "ds5")
 TARGET_FPS_CHOICES = (30, 40, 45, 48, 50, 60, 72, 90, 120, 144)
 TDP_ABS_MIN = 4
 TDP_ABS_MAX = 40
@@ -47,6 +48,9 @@ def defaults():
         },
         "controls": {
             "swap_menu": False,
+            # Controller InputPlumber shows to Steam: "default" (Xbox, no
+            # gyro) or a gyro-capable type.
+            "steam_controller": "default",
             "remap_managed": False,
             "remap": {name: "none" for name in controller.REMAP_BUTTONS},
             "touchpad": None,
@@ -137,6 +141,8 @@ def sanitize(data):
     if isinstance(c, dict):
         d = out["controls"]
         d["swap_menu"] = _flag(c.get("swap_menu"), False)
+        if c.get("steam_controller") in STEAM_CONTROLLERS:
+            d["steam_controller"] = c["steam_controller"]
         d["remap_managed"] = _flag(c.get("remap_managed"), False)
         d["touchpad"] = _opt_flag(c.get("touchpad"), None)
         remap = c.get("remap")

@@ -26,7 +26,7 @@ cannot do says so, with the reason, instead of pretending.
 | **Fan** | Draw a ten-point fan curve, presets, full speed, live temperature |
 | **Lights** | Stick lights: effect, colour, brightness, speed. Power-button light on/off, and off while sleeping |
 | **Controls** | Swap View/Menu with the Legion buttons, remap Y1 Y2 Y3 M2 M3, switch the touchpad off |
-| **Gyro** | Each detached controller as its own motion device for Dolphin, Switch emulators and others (DSU / CemuHook) |
+| **Gyro** | Gyro in ordinary Steam games (handheld), and each detached controller as its own motion device for Dolphin, Switch emulators and others (DSU / CemuHook) |
 
 Saved settings are applied when SteamOS starts, after sleep, and when a
 controller reconnects, also while the menu is closed.
@@ -47,7 +47,7 @@ controller reconnects, also while the menu is closed.
 | Charge limit | SteamOS exposes the battery's *Long Life* mode (current versions do) |
 | TDP and power modes | SteamOS has the Lenovo power-limit driver (current versions do) |
 | Auto TDP | The above, in Gaming Mode (the frame rate comes from gamescope) |
-| Swapped menu buttons | InputPlumber is running (it is on SteamOS) |
+| Swapped menu buttons, gyro in Steam games | InputPlumber is running (it is on SteamOS) |
 | **Fan curve** | **The `acpi_call` kernel module is installed. SteamOS does not include it** |
 
 **About the fan curve.** The Legion Go only accepts a fan table through a
@@ -117,7 +117,17 @@ power light off when the device suspends and back on when it wakes.
 
 ### Gyro
 
-Add a DSU / CemuHook motion server in your emulator: `127.0.0.1`, port
+**In Steam games.** Steam only offers gyro for controllers that have one,
+and by default SteamOS presents the Legion Go as an Xbox controller. Under
+*Gyro in Steam games* choose **Steam Deck controller** (or a DualSense):
+Steam then shows its normal gyro options for every game (Steam button →
+Controller settings → Gyro). This uses the motion sensor inside the tablet,
+so it works with the controllers attached; it cannot use a detached
+controller's own sensor. Switching the type reconnects the controller once,
+so do it before starting a game. Controller layouts are stored per
+controller type, so a game may start with that type's default layout.
+
+**In emulators.** Add a DSU / CemuHook motion server in your emulator: `127.0.0.1`, port
 `26760`. Slot 0 = whole handheld, slot 1 = left controller, slot 2 = right
 controller.
 
@@ -150,12 +160,13 @@ Press **Calibrate** once and leave the controllers alone for a few seconds.
 ## Scope and limits
 
 - Written against the documented hardware interfaces and verified with
-  simulated hardware (117 automated tests). Only the gyro part has been run
+  simulated hardware (119 automated tests). Only the gyro part has been run
   on a real Legion Go so far; the other modules read the device state back
   after every change and report it when a change did not take.
 - Legion Go 2 and Legion Go S are recognised for the parts that are known to
   be identical (power limits, charge limit, power light); the rest stays off.
-- The gyro feeds emulators. It does not add gyro to Steam Input.
+- Gyro in Steam games comes from the tablet's sensor through SteamOS's own
+  input layer; per-controller gyro is for emulators only.
 
 ## How it works
 

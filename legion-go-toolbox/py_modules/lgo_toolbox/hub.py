@@ -13,7 +13,7 @@ import time
 from . import config as cfg
 from . import controller, fan, fps_probe, sysio
 from .battery import ChargeLimit, battery_info
-from .plumber import MenuSwap
+from .plumber import MenuSwap, SteamController
 from .power import CUSTOM, AutoTdp, FpsMonitor, PowerLimits, cpu_boost_state, set_cpu_boost
 from .powerled import PowerLed
 
@@ -47,6 +47,7 @@ class Hub(object):
         self.led = m.get("led") or PowerLed(self.product)
         self.swap = m.get("swap") or MenuSwap(
             state_file=(state_dir + "/inputplumber_base_profile") if state_dir else None)
+        self.steam_pad = m.get("steam_pad") or SteamController()
         self.fps = m.get("fps") or FpsMonitor(logger=self._log)
         self._send = m.get("send") or controller.send
         self._sensors = m.get("sensors") or fan.read_sensors
@@ -142,6 +143,9 @@ class Hub(object):
         caps["sticks"] = cap(ctrl_ok, ctrl_reason)
         caps["remap"] = cap(ctrl_ok, ctrl_reason)
         caps["swap_menu"] = cap(self.swap.available(), "InputPlumber is not running")
+        pads = self.steam_pad.supported()
+        caps["steam_gyro"] = cap(bool(pads), "InputPlumber is not running")
+        caps["steam_gyro"]["types"] = pads
         self._caps = caps
         self._caps_at = now
         return caps
@@ -218,6 +222,7 @@ class Hub(object):
         self._apply_power(force=True)
         self._apply_fan()
         self._apply_controller()
+        self._apply_steam_pad()
         self._apply_swap()
 
     def _apply_section(self, section, old):
@@ -235,7 +240,12 @@ class Hub(object):
             self._apply_power(force=True, was_enabled=old["power"]["enabled"])
         elif section == "controls":
             o, n = old["controls"], self.settings["controls"]
-            if o["swap_menu"] != n["swap_menu"]:
+            if o["steam_controller"] != n["steam_controller"]:
+                self._apply_steam_pad()
+                # A new virtual controller starts with the base profile.
+                time.sleep(1.0)
+                self._apply_swap()
+            elif o["swap_menu"] != n["swap_menu"]:
                 self._apply_swap()
             if (o["remap"], o["remap_managed"], o["touchpad"]) != (
                     n["remap"], n["remap_managed"], n["touchpad"]):
@@ -299,6 +309,14 @@ class Hub(object):
     def _apply_controller(self):
         self._apply_sticks()
         self._apply_remap()
+
+    def _apply_steam_pad(self):
+        want = self.settings["controls"]["steam_controller"]
+        with self._hw:
+            if not self.steam_pad.needs_apply(want):
+                return
+            ok = self.steam_pad.apply(want)
+        self._err("steam_gyro", None if ok else self.steam_pad.error)
 
     def _apply_swap(self):
         want = self.settings["controls"]["swap_menu"]
@@ -438,9 +456,12 @@ class Hub(object):
                     self._log.info("Power settings were changed from outside, re-applying")
                     self._apply_power()
 
-        if self.settings["controls"]["swap_menu"] and now - self._swap_checked >= SWAP_CHECK_S:
+        if now - self._swap_checked >= SWAP_CHECK_S:
             self._swap_checked = now
-            if self.swap.is_active() is False:
+            # InputPlumber forgets both when it restarts: put them back.
+            if self.settings["controls"]["steam_controller"] != "default":
+                self._apply_steam_pad()
+            if self.settings["controls"]["swap_menu"] and self.swap.is_active() is False:
                 self._apply_swap()
 
         # Controllers that (re)appear get their lights and mapping again

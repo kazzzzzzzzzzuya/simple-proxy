@@ -10,6 +10,7 @@ import { flushWrites, load, refreshStatus, useStore } from "./store";
 import { ControlsTab } from "./tabs/Controls";
 import { FanTab } from "./tabs/Fan";
 import { GyroTab } from "./tabs/Gyro";
+import { SteamGyroSection } from "./tabs/SteamGyro";
 import { HomeTab } from "./tabs/Home";
 import { LightsTab } from "./tabs/Lights";
 import { PowerTab } from "./tabs/Power";
@@ -88,7 +89,13 @@ const Content: FC = () => {
     { id: "Fan", title: <FaFan size={18} />, content: wrap(<FanTab />) },
     { id: "Lights", title: <FaLightbulb size={18} />, content: wrap(<LightsTab />) },
     { id: "Controls", title: <FaGamepad size={18} />, content: wrap(<ControlsTab />) },
-    { id: "Gyro", title: <MdScreenRotation size={18} />, content: wrap(<GyroTab />) },
+    { id: "Gyro", title: <MdScreenRotation size={18} />, content: wrap(
+        <>
+          <SteamGyroSection />
+          <GyroTab />
+        </>,
+      ),
+    },
   ];
 
   return (

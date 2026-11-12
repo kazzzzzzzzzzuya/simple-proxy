@@ -175,3 +175,91 @@ class MenuSwap(object):
                 return self._load(device, text)
         # No base profile to return to: an empty profile removes the swap.
         return self._load(device, "version: 1\nkind: DeviceProfile\nname: Default\nmapping: []\n")
+
+
+# ---------------------------------------------------------------------------
+# Controller type presented to Steam
+# ---------------------------------------------------------------------------
+
+MANAGER_PATH = "/org/shadowblip/InputPlumber/Manager"
+MANAGER_IFACE = "org.shadowblip.InputManager"
+
+# What InputPlumber's Legion Go profile creates by default.
+DEFAULT_TARGETS = ("xbox-elite", "mouse", "keyboard", "touchpad")
+# Controller types Steam gives gyro to.
+GYRO_TARGETS = ("deck-uhid", "ds5-edge", "ds5")
+
+
+class SteamController(object):
+    """Chooses which controller InputPlumber emulates.
+
+    The default (an Xbox pad) has no motion sensor as far as Steam is
+    concerned. Emulating a Steam Deck or DualSense controller instead makes
+    InputPlumber pass the tablet's motion sensor on, and Steam Input then
+    offers its usual gyro options in every game.
+    """
+
+    def __init__(self, runner=sysio.run, state_file="/tmp/.lgo-toolbox-steam-controller"):
+        self._run = runner
+        self._state_file = state_file
+        self._applied = None        # (kind, InputPlumber start stamp)
+        self.error = None
+        # Remember across plugin reloads what InputPlumber was last told
+        # (the file lives in /tmp, so a reboot starts clean like it does).
+        saved = sysio.read_text(state_file) if state_file else None
+        if saved and "\n" in saved:
+            kind, stamp = saved.split("\n", 1)
+            self._applied = (kind, stamp)
+
+    def _device(self):
+        for idx in range(4):
+            path = PATH_FMT % idx
+            rc, _, _ = self._run(["busctl", "get-property", DEST, path, IFACE, "ProfileName"])
+            if rc == 0:
+                return path
+        return None
+
+    def supported(self):
+        """Gyro-capable controller types this InputPlumber can emulate."""
+        rc, out, _ = self._run(["busctl", "get-property", DEST, MANAGER_PATH,
+                                MANAGER_IFACE, "SupportedTargetDeviceIds"])
+        if rc != 0 or not out.strip().startswith("as "):
+            # Older InputPlumber without the list: these three are long-standing.
+            return list(GYRO_TARGETS) if self._device() else []
+        ids = [p.strip('"') for p in out.split()[2:]]
+        return [t for t in GYRO_TARGETS if t in ids]
+
+    def _stamp(self):
+        """Changes whenever the InputPlumber service is (re)started."""
+        rc, out, _ = self._run(["systemctl", "show", "inputplumber", "-p",
+                                "ActiveEnterTimestampMonotonic", "--value"])
+        return out.strip() if rc == 0 else ""
+
+    def needs_apply(self, kind):
+        """True if InputPlumber is not (or no longer) emulating `kind`."""
+        if self._applied is None:
+            return kind != "default"
+        return self._applied != (kind, self._stamp())
+
+    def apply(self, kind):
+        device = self._device()
+        if not device:
+            self.error = "InputPlumber is not running"
+            return False
+        if kind == "default":
+            targets = list(DEFAULT_TARGETS)
+        elif kind in GYRO_TARGETS:
+            targets = [kind, "keyboard", "mouse"]
+        else:
+            self.error = "Unknown controller type"
+            return False
+        rc, _, err = self._run(["busctl", "call", DEST, device, IFACE, "SetTargetDevices",
+                                "as", str(len(targets))] + targets)
+        if rc != 0:
+            self.error = err.strip() or "InputPlumber refused the controller type"
+            return False
+        self.error = None
+        self._applied = (kind, self._stamp())
+        if self._state_file:
+            sysio.write_text(self._state_file, "%s\n%s" % self._applied)
+        return True
