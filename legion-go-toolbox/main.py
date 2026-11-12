@@ -122,6 +122,10 @@ class Plugin:
     async def delete_power_profile(self, key):
         return await _bg(Plugin._hub().delete_power_profile, str(key))
 
+    async def set_game_controller(self, app_id, kind, name):
+        """kind None removes the game's own controller type."""
+        return await _bg(Plugin._hub().set_game_controller, app_id, kind, name)
+
     async def set_running_app(self, app_id, name):
         await _bg(Plugin._hub().set_running_app, app_id, name)
 

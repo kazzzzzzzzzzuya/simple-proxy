@@ -1258,6 +1258,61 @@ class HubTests(TempDirCase):
         self.assertEqual(cfg.sanitize({"controls": {"steam_controller": "ps9"}})
                          ["controls"]["steam_controller"], "deck-uhid")
 
+    def test_per_game_controller_type(self):
+        pad, swap = self.mods["steam_pad"], self.mods["swap"]
+        orig_sleep = time.sleep
+        time.sleep = lambda s: None
+        self.addCleanup(setattr, time, "sleep", orig_sleep)
+        self.hub.apply_all("test")
+        self.assertEqual(pad.applies, ["deck-uhid"])
+        self.hub.update({"controls": {"swap_menu": True}})
+        # Elden Ring gets a DualSense Edge while it runs
+        self.hub.set_running_app(1245620, "ELDEN RING")
+        self.assertEqual(self.hub.steam_controller_for(), ("deck-uhid", "default"))
+        swap.active = False
+        out = self.hub.set_game_controller(1245620, "ds5-edge", "ELDEN RING")
+        self.assertEqual(out["controls"]["steam_controller_games"],
+                         {"1245620": {"type": "ds5-edge", "name": "ELDEN RING"}})
+        self.assertEqual(pad.applies[-1], "ds5-edge")
+        self.assertTrue(swap.active)                   # swap put back on top
+        self.assertEqual(self.hub.status()["steam_controller"],
+                         {"type": "ds5-edge", "source": "game"})
+        # Back to the library: the default again
+        self.hub.set_running_app(None, "")
+        self.assertEqual(pad.applies[-1], "deck-uhid")
+        # Another game without its own type: no reconnect at all
+        n = len(pad.applies)
+        self.hub.set_running_app(400, "Portal")
+        self.assertEqual(len(pad.applies), n)
+        # Starting Elden Ring again picks its type up by itself
+        self.hub.set_running_app(1245620, "ELDEN RING")
+        self.assertEqual(pad.applies[-1], "ds5-edge")
+        self.hub._tick(900.0)
+        self.assertEqual(pad.applies[-1], "ds5-edge")  # keep-alive changes nothing
+        self.assertEqual(len(pad.applies), n + 1)
+        # Saved across restarts
+        self.assertIn("1245620", cfg.load(self.path)["controls"]["steam_controller_games"])
+        # Removing it returns that game to the default
+        out = self.hub.set_game_controller(1245620, None)
+        self.assertEqual(out["controls"]["steam_controller_games"], {})
+        self.assertEqual(pad.applies[-1], "deck-uhid")
+        # Changing the default while a game with its own type runs: no switch
+        self.hub.set_game_controller(1245620, "ds5", "ELDEN RING")
+        n = len(pad.applies)
+        self.hub.update({"controls": {"steam_controller": "xbox"}})
+        self.assertEqual(len(pad.applies), n)
+        self.hub.set_running_app(None, "")
+        self.assertEqual(pad.applies[-1], "xbox")
+
+    def test_per_game_controller_sanitizing(self):
+        d = cfg.sanitize({"version": 2, "controls": {"steam_controller_games": {
+            "123": {"type": "ds5", "name": "A" * 300}, "../x": {"type": "ds5"},
+            "456": {"type": "ps9"}, "789": "ds5", "42": {"type": "xbox", "name": 7}}}})
+        games = d["controls"]["steam_controller_games"]
+        self.assertEqual(sorted(games), ["123", "42"])
+        self.assertEqual(len(games["123"]["name"]), 120)
+        self.assertEqual(games["42"], {"type": "xbox", "name": ""})
+
     def test_manual_tdp_and_modes(self):
         limits = self.mods["limits"]
         self.hub.update({"power": {"enabled": True, "profiles": {"default": {"tdp": 12}}}})

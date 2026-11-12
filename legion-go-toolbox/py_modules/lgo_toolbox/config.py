@@ -55,6 +55,8 @@ def defaults():
             "swap_menu": False,
             "swap_layout": SWAP_LAYOUTS[0],
             "steam_controller": DEFAULT_STEAM_CONTROLLER,
+            # Per game: {appid: {"type": ..., "name": ...}}
+            "steam_controller_games": {},
             "remap_managed": False,
             "remap": {name: "none" for name in controller.REMAP_BUTTONS},
             "touchpad": None,
@@ -157,6 +159,18 @@ def sanitize(data):
             steam = DEFAULT_STEAM_CONTROLLER if old else "xbox"
         if steam in STEAM_CONTROLLERS:
             d["steam_controller"] = steam
+        games = c.get("steam_controller_games")
+        if isinstance(games, dict):
+            for key, value in list(games.items())[:500]:
+                if not (isinstance(key, str) and key.isdigit() and len(key) <= 12):
+                    continue
+                if not isinstance(value, dict) or value.get("type") not in STEAM_CONTROLLERS:
+                    continue
+                name = value.get("name")
+                d["steam_controller_games"][key] = {
+                    "type": value["type"],
+                    "name": name[:120] if isinstance(name, str) else "",
+                }
         d["remap_managed"] = _flag(c.get("remap_managed"), False)
         d["touchpad"] = _opt_flag(c.get("touchpad"), None)
         remap = c.get("remap")

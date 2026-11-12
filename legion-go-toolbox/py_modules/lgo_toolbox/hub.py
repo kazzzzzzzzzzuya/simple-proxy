@@ -207,6 +207,35 @@ class Hub(object):
         self._app_name = str(name or "")[:120]
         self._auto = None
         self._apply_power(force=True)
+        self._apply_steam_pad()
+
+    def steam_controller_for(self, app=None):
+        """(type, source) Steam should see: the game's own choice when it
+        has one, else the default. source is "game" or "default"."""
+        controls = self.settings["controls"]
+        app = self._app if app is None else app
+        entry = controls["steam_controller_games"].get(str(app)) if app is not None else None
+        if entry:
+            return entry["type"], "game"
+        return controls["steam_controller"], "default"
+
+    def set_game_controller(self, app_id, kind, name=""):
+        """Give a game its own controller type (kind None removes it)."""
+        key = str(int(app_id))
+        if kind is None:
+            patch_games = {k: v for k, v in self.settings["controls"]
+                           ["steam_controller_games"].items() if k != key}
+            with self._lock:
+                self.settings["controls"]["steam_controller_games"] = patch_games
+                self.settings = cfg.sanitize(self.settings)
+                self._save()
+        else:
+            with self._lock:
+                self.settings = cfg.merge(self.settings, {"controls": {
+                    "steam_controller_games": {key: {"type": kind, "name": str(name or "")}}}})
+                self._save()
+        self._apply_steam_pad()
+        return self.get_settings()
 
     # ------------------------------------------------------------------
     # applying
@@ -245,12 +274,10 @@ class Hub(object):
             self._apply_power(force=True, was_enabled=old["power"]["enabled"])
         elif section == "controls":
             o, n = old["controls"], self.settings["controls"]
-            if o["steam_controller"] != n["steam_controller"]:
-                self._apply_steam_pad()
-                # A new virtual controller starts with the base profile.
-                time.sleep(1.0)
-                self._apply_swap()
-            elif (o["swap_menu"], o["swap_layout"]) != (n["swap_menu"], n["swap_layout"]):
+            changed_pad = (o["steam_controller"], o["steam_controller_games"]) != (
+                n["steam_controller"], n["steam_controller_games"])
+            if not (changed_pad and self._apply_steam_pad()) and \
+                    (o["swap_menu"], o["swap_layout"]) != (n["swap_menu"], n["swap_layout"]):
                 self._apply_swap()
             if (o["remap"], o["remap_managed"], o["touchpad"]) != (
                     n["remap"], n["remap_managed"], n["touchpad"]):
@@ -316,12 +343,20 @@ class Hub(object):
         self._apply_remap()
 
     def _apply_steam_pad(self):
-        want = self.settings["controls"]["steam_controller"]
+        """Make InputPlumber present the right controller type. Returns True
+        if the controller was switched (it reconnects when that happens)."""
+        want, _ = self.steam_controller_for()
         with self._hw:
             if not self.steam_pad.needs_apply(want):
-                return
+                return False
             ok = self.steam_pad.apply(want)
         self._err("steam_gyro", None if ok else self.steam_pad.error)
+        if ok:
+            # A new virtual controller can start with the base profile:
+            # put the menu-button swap back on top.
+            time.sleep(1.0)
+            self._apply_swap()
+        return ok
 
     def _apply_swap(self):
         want = self.settings["controls"]["swap_menu"]
@@ -522,8 +557,7 @@ class Hub(object):
             self._swap_checked = now
             # InputPlumber forgets both when it restarts: put them back.
             controls = self.settings["controls"]
-            if controls["steam_controller"] != "xbox":
-                self._apply_steam_pad()
+            self._apply_steam_pad()       # no-op unless something changed
             if controls["swap_menu"] and self.swap.is_active(controls["swap_layout"]) is False:
                 self._apply_swap()
 
@@ -601,6 +635,7 @@ class Hub(object):
             "model": self.product,
             "errors": dict(self.errors),
             "app": {"id": self._app, "name": self._app_name},
+            "steam_controller": dict(zip(("type", "source"), self.steam_controller_for())),
             "power": {
                 "profile_key": key,
                 "mode": self.limits.profile(),

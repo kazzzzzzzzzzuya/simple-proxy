@@ -137,7 +137,20 @@ and InputPlumber on its own presents the Legion Go as an Xbox controller.
 This plugin presents it as a **Steam Deck controller** by default (also
 selectable: DualSense, DualSense Edge, or back to Xbox), so Steam shows its
 normal gyro options for every game (Steam button → Controller settings →
-Gyro). This uses the motion sensor inside the tablet,
+Gyro).
+
+Choose a type for **all games**, and optionally a different one for the
+game that is running: it is remembered, switched to when that game starts
+and back when it closes. *Games with their own type* lists them; select one
+to remove it.
+
+**Button symbols**: most games show Xbox symbols whatever type is picked,
+because Steam Input hands them an Xbox-style controller. Games with their own
+PlayStation support may show PlayStation symbols with a DualSense (most offer
+a button-prompt setting); Steam's own menus always match the type. The Steam
+Deck type keeps A/B/X/Y lettering.
+
+This uses the motion sensor inside the tablet,
 so it works with the controllers attached; it cannot use a detached
 controller's own sensor. Switching the type reconnects the controller once,
 so do it before starting a game. Controller layouts are stored per
@@ -175,7 +188,7 @@ Press **Calibrate** once and leave the controllers alone for a few seconds.
 
 ## Scope and limits
 
-- Used on a Legion Go (83E1), and verified with simulated hardware (125
+- Used on a Legion Go (83E1), and verified with simulated hardware (127
   automated tests). Every module reads the device state back after a change
   and reports it when a change did not take.
 - Legion Go 2 and Legion Go S are recognised for the parts that are known to

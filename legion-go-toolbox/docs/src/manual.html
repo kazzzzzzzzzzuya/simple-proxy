@@ -31,7 +31,7 @@
 <!-- ============================== COVER ============================== -->
 <section class="cover">
   <div class="top">
-    <div class="kicker">User manual · Version 2.2</div>
+    <div class="kicker">User manual · Version 2.3</div>
     <h1>Legion Go Toolbox</h1>
     <div class="sub">The Lenovo Legion Go's hardware controls in the Steam Quick Access menu: power and automatic TDP, fan, lights, battery, buttons and gyro.</div>
     <div class="tabs"><span>Home</span><span>Power</span><span>Fan</span><span>Lights</span><span>Controls</span><span>Gyro</span></div>
@@ -314,13 +314,21 @@
   <h2>Gyro in Steam games</h2>
   <p>Steam offers gyro settings only for controllers that have a gyro. On its own, InputPlumber presents the Legion Go as an Xbox controller, which has none. The plugin therefore presents it as a <b>Steam Deck controller</b> by default.</p>
   <table>
-    <tr><th>"Steam sees a"</th><th>Result</th></tr>
-    <tr><td class="k">Steam Deck controller (default)</td><td>Steam's full gyro options; button prompts as on a Steam Deck</td></tr>
+    <tr><th>Type</th><th>Result</th></tr>
+    <tr><td class="k">Steam Deck controller (default)</td><td>Steam's full gyro options; A/B/X/Y lettering like Xbox</td></tr>
     <tr><td class="k">Xbox controller (no gyro)</td><td>No gyro in Steam; what InputPlumber does without this plugin</td></tr>
-    <tr><td class="k">DualSense / DualSense Edge</td><td>Gyro with PlayStation button prompts</td></tr>
+    <tr><td class="k">DualSense / DualSense Edge</td><td>Gyro; PlayStation symbols in Steam's menus and in games with their own PlayStation support</td></tr>
   </table>
+  <h3>A different type for one game</h3>
+  <p>While a game is running, a second list with the game's name appears. Choose a type there and it is remembered for that game: the plugin switches to it whenever the game starts and back to the all-games type when it closes. <i>Same as all games</i> removes the game's own choice; so does selecting the game under <b>Games with their own type</b>.</p>
+  <div class="note"><b>Note.</b> Switching type reconnects the virtual controller, so Steam may briefly show a controller notification as a game starts.</div>
+
+  <h3>Button symbols</h3>
+  <p>Most games show <b>Xbox symbols</b> whatever type you pick, because Steam Input hands every game an Xbox-style controller. Games with their own PlayStation support may switch to PlayStation symbols when Steam sees a DualSense; most of them have a button-prompt option in their own settings. Steam's own menus and the controller-settings screen always show the type you picked. The Steam Deck type keeps A/B/X/Y lettering, which makes it the best all-round choice.</p>
+
+  <h3>Setting up gyro in a game</h3>
   <ol class="steps">
-    <li>Pick the type before starting a game - changing it reconnects the controller once.</li>
+    <li>Pick the type before starting the game - changing it reconnects the controller once.</li>
     <li>In the game press the Steam button → <b>Controller settings</b> → <b>Gyro</b> and set it up like on a Steam Deck (for example <i>As mouse</i> or <i>As joystick</i>, enabled while touching the right stick).</li>
   </ol>
   <div class="note"><b>Layouts per controller type.</b> Steam stores controller layouts separately for each controller type. After switching type, a game may start with that type's default layout.</div>
@@ -353,7 +361,7 @@
     <div class="card"><h4>Eden / Citron / other yuzu forks</h4>Configure → Controls → Advanced → <b>Motion/Touch</b> → Configure → add <code>127.0.0.1:26760</code>. On the player page click <b>Motion 1</b> and shake the left controller, then <b>Motion 2</b> and shake the right one.</div>
   </div>
 
-  <h3>Advanced options</h3>
+  <h3 style="break-before: page">Advanced options</h3>
   <p>Turn on <b>Advanced options</b> at the bottom of the tab for per-slot settings. Turning it off again only hides them; if anything was changed the simple view offers <b>Use default settings</b>.</p>
   <table>
     <tr><th>Setting</th><th>What it does</th></tr>
@@ -382,7 +390,8 @@
     <tr><td>No fan curve editor</td><td>The <code>acpi_call</code> module is missing (chapter 6).</td></tr>
     <tr><td>Stick lights or remapping: "controllers not found"</td><td>Wake the controllers by pressing a button, then change the setting again.</td></tr>
     <tr><td>Menu buttons back to normal</td><td>InputPlumber restarted; the swap is re-applied within a few seconds.</td></tr>
-    <tr><td>No gyro option in Steam's controller settings</td><td>Gyro tab → <i>Steam sees a</i> must not be <i>Xbox controller</i>. Restart the game after changing it.</td></tr>
+    <tr><td>No gyro option in Steam's controller settings</td><td>Gyro tab → the type for <i>All games</i> (or for that game) must not be <i>Xbox controller</i>. Restart the game after changing it.</td></tr>
+    <tr><td>PlayStation symbols in a game</td><td>The game supports PlayStation controllers natively. Use its button-prompt setting, or give that game the Steam Deck type.</td></tr>
     <tr><td>Emulator gets no motion</td><td>Check the server address and slot; the Gyro tab shows "1 emulator connected" once it works. <code>tools/dsu_monitor.py</code> prints the live data without an emulator.</td></tr>
     <tr><td>"Port 26760 is already used"</td><td>Another motion server is running (EmuDeck can install one). Stop it, or pick another port here and in the emulator.</td></tr>
     <tr><td>Motion drifts</td><td>Lay the controllers down and press Calibrate.</td></tr>
@@ -421,7 +430,7 @@
   </table>
 
   <h2>Testing status</h2>
-  <p>Besides use on a Legion Go (83E1), every module is covered by automated tests with simulated hardware (125 tests), and every module reads the hardware back after a change and reports it when a change did not take.</p>
+  <p>Besides use on a Legion Go (83E1), every module is covered by automated tests with simulated hardware (127 tests), and every module reads the hardware back after a change and reports it when a change did not take.</p>
 
   <h2>Credits</h2>
   <p class="muted">Legion Go Toolbox is its own code, built on what these projects worked out about the hardware: Handheld Daemon and hwinfo (controller protocol, Lenovo firmware methods and fan minimum), Legion Center and LegionGoRemapper (remapping, fan table, charge limit), HueSync (power light), SimpleDeckyTDP (power limits), DeckyPlumber and InputPlumber (menu-button swap), Panel de Control (frame times from gamescope), decky-lsfg-vk (tabs) and Legion Go 2 Companion (overview layout).</p>

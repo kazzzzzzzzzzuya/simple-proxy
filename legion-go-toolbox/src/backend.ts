@@ -45,6 +45,8 @@ export interface Settings {
     swap_layout: "steam_menu" | "steam_view";
     /** "deck-uhid" (default), "xbox" (no gyro in Steam), "ds5-edge" or "ds5". */
     steam_controller: string;
+    /** Games with their own controller type, by app id. */
+    steam_controller_games: Record<string, { type: string; name: string }>;
     remap_managed: boolean;
     remap: Record<RemapButton, string>;
     touchpad: boolean | null;
@@ -80,6 +82,7 @@ export interface HubStatus {
   model: string;
   errors: Record<string, string>;
   app: { id: number | null; name: string };
+  steam_controller: { type: string; source: "game" | "default" };
   power: {
     profile_key: string;
     mode: string | null;
@@ -126,6 +129,10 @@ export const deletePowerProfile = callable<[key: string], Settings>("delete_powe
 export const setRunningApp = callable<[appId: number | null, name: string], void>(
   "set_running_app",
 );
+export const setGameController = callable<
+  [appId: number, kind: string | null, name: string],
+  Settings
+>("set_game_controller");
 export const onSuspend = callable<[], void>("on_suspend");
 export const onResume = callable<[], void>("on_resume");
 
