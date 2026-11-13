@@ -1,0 +1,11 @@
+{
+  "name": "Legion Go Toolbox",
+  "author": "Legion Go Toolbox contributors",
+  "flags": ["root"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["legion-go", "tdp", "fan", "rgb", "gyro", "battery", "root"],
+    "description": "Hardware controls for the Lenovo Legion Go in one place: TDP with automatic frame-rate targeting, fan curve, stick and power lights, charge limit, button remapping, swapped menu buttons and per-controller gyro for emulators.",
+    "image": "https://opengraph.githubassets.com/1/SteamDeckHomebrew/PluginLoader"
+  }
+}

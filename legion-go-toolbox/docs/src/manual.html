@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Legion Go Toolbox – User Manual</title>
+<link rel="stylesheet" href="print.css">
+<style>
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .cover .top { margin-top: 38mm; }
+  .cover .kicker { text-transform: uppercase; letter-spacing: 0.14em; font-size: 9pt; color: var(--accent); font-weight: 600; }
+  .cover h1 { font-size: 38pt; margin: 6pt 0 8pt; letter-spacing: -0.01em; }
+  .cover .sub { font-size: 13pt; color: var(--muted); max-width: 135mm; }
+  .cover .tabs { display: flex; gap: 6pt; margin-top: 22pt; flex-wrap: wrap; }
+  .cover .tabs span { border: 0.8pt solid var(--line); border-radius: 12pt; padding: 3pt 10pt; font-size: 9.5pt; }
+  .cover .meta { border-top: 1.5pt solid var(--ink); padding-top: 8pt; font-size: 9pt; color: var(--muted); display: flex; justify-content: space-between; }
+  .toc { list-style: none; padding: 0; margin: 10pt 0 0; columns: 1; }
+  .toc > li { display: flex; gap: 10pt; padding: 6pt 0; border-bottom: 0.6pt solid var(--line); margin: 0; }
+  .toc .n { width: 18pt; color: var(--accent); font-weight: 700; }
+  .toc .t { font-weight: 600; }
+  .toc .d { color: var(--muted); font-size: 9pt; }
+  .chap-num { color: var(--accent); font-weight: 700; margin-right: 6pt; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8pt; }
+  .card { border: 0.6pt solid var(--line); border-radius: 5pt; padding: 7pt 9pt; break-inside: avoid; }
+  .card h4 { margin-top: 0; }
+  td.k { white-space: nowrap; font-weight: 600; }
+  .sw { display: inline-block; width: 9pt; height: 9pt; border-radius: 2pt; vertical-align: -1pt; }
+</style>
+</head>
+<body>
+
+<!-- ============================== COVER ============================== -->
+<section class="cover">
+  <div class="top">
+    <div class="kicker">User manual · Version 2.5</div>
+    <h1>Legion Go Toolbox</h1>
+    <div class="sub">The Lenovo Legion Go's hardware controls in the Steam Quick Access menu: power and automatic TDP, fan, lights, battery, buttons and gyro.</div>
+    <div class="tabs"><span>Home</span><span>Power</span><span>Fan</span><span>Lights</span><span>Controls</span><span>Gyro</span></div>
+  </div>
+  <div class="meta"><span>For the Lenovo Legion Go (83E1) on SteamOS with Decky Loader</span><span>MIT licensed</span></div>
+</section>
+
+<!-- ============================== CONTENTS ============================== -->
+<section class="chapter">
+  <h1>Contents</h1>
+  <ol class="toc">
+    <li><span class="n">1</span><span><span class="t">Before you start</span><br><span class="d">What the plugin does, what it needs, what it will not touch</span></span></li>
+    <li><span class="n">2</span><span><span class="t">Installing, updating and removing</span><br><span class="d">Decky developer mode, moving over from Legion Go Gyro</span></span></li>
+    <li><span class="n">3</span><span><span class="t">Finding your way around</span><br><span class="d">Tabs, status lines, "not available" messages</span></span></li>
+    <li><span class="n">4</span><span><span class="t">Home and battery</span><br><span class="d">Overview, 80 % charge limit, reset</span></span></li>
+    <li><span class="n">5</span><span><span class="t">Power</span><br><span class="d">Power modes, TDP, Auto TDP for a frame rate, Smooth frame rate, per-game profiles</span></span></li>
+    <li><span class="n">6</span><span><span class="t">Fan</span><br><span class="d">Custom curve, presets, full speed, safety limits</span></span></li>
+    <li><span class="n">7</span><span><span class="t">Lights</span><br><span class="d">Stick lights, power-button light</span></span></li>
+    <li><span class="n">8</span><span><span class="t">Controls</span><br><span class="d">Swapped menu buttons, back-button remapping, touchpad</span></span></li>
+    <li><span class="n">9</span><span><span class="t">Gyro</span><br><span class="d">Gyro in Steam games, gyro in emulators (Wii Sports, Switch Sports)</span></span></li>
+    <li><span class="n">10</span><span><span class="t">Troubleshooting</span><br><span class="d">Symptoms and fixes</span></span></li>
+    <li><span class="n">11</span><span><span class="t">Reference</span><br><span class="d">Files, limits, what is re-applied when, credits</span></span></li>
+  </ol>
+</section>
+
+<!-- ============================== 1 ============================== -->
+<section class="chapter">
+  <h1><span class="chap-num">1</span>Before you start</h1>
+
+  <p>Legion Go Toolbox is a Decky Loader plugin. It puts the hardware settings Lenovo's Windows app (Legion Space) offers, plus a few extras, into the Quick Access menu of SteamOS. Everything is arranged in six tabs.</p>
+
+  <h2>Three promises</h2>
+  <ul>
+    <li><b>Nothing changes until you switch it on.</b> A fresh install leaves power, fan, lights, buttons and battery exactly as they were. The one exception is the controller type Steam sees, which defaults to a Steam Deck controller so Steam offers gyro (see chapter 9).</li>
+    <li><b>Every change is checked.</b> After writing a setting the plugin reads it back. If the hardware did not accept it you see a <i>Problem</i> line with the reason instead of a switch that looks on but does nothing.</li>
+    <li><b>Settings stay applied.</b> They are applied again at start-up, after sleep, when a controller reconnects, and when something else (Steam, another tool, the firmware) changes them back - also while the menu is closed.</li>
+  </ul>
+
+  <h2>What you need</h2>
+  <table>
+    <tr><th>Item</th><th>Details</th></tr>
+    <tr><td class="k">Device</td><td>Lenovo Legion Go (model 83E1). Legion Go 2 and Legion Go S are recognised for the parts known to be identical (power limits, charge limit, power light); everything else stays off on those.</td></tr>
+    <tr><td class="k">System</td><td>SteamOS with <a href="https://decky.xyz">Decky Loader</a> installed.</td></tr>
+    <tr><td class="k">For the fan curve only</td><td>The <code>acpi_call</code> kernel module (see chapter 6). Everything else works on a stock SteamOS.</td></tr>
+  </table>
+
+  <h2>What each feature depends on</h2>
+  <table>
+    <tr><th>Feature</th><th>Works when</th></tr>
+    <tr><td>Gyro, stick lights, remapping, touchpad</td><td>The controllers are connected (attached or detached)</td></tr>
+    <tr><td>Power-button light</td><td>Always on a Legion Go; three different ways to reach it are tried</td></tr>
+    <tr><td>80 % charge limit</td><td>SteamOS exposes the battery's <i>Long Life</i> mode (current versions do)</td></tr>
+    <tr><td>Power modes and TDP</td><td>SteamOS has Lenovo's power-limit driver (current versions do)</td></tr>
+    <tr><td>Auto TDP</td><td>The above, in Gaming Mode (the frame rate is read from the SteamOS compositor)</td></tr>
+    <tr><td>Swapped menu buttons, gyro in Steam games</td><td>InputPlumber is running (it is on SteamOS)</td></tr>
+    <tr><td><b>Custom fan curve</b></td><td><b>The <code>acpi_call</code> module is installed - SteamOS does not include it</b></td></tr>
+  </table>
+
+  <div class="warn"><b>One controller of each thing.</b> Two plugins steering the same hardware keep overwriting each other. Remove (or switch off) SimpleDeckyTDP, Legion Center, HueSync, DeckyPlumber, LegionGoRemapper and the stand-alone Legion Go Gyro before using the matching tab here. Also turn off Steam's own <i>TDP limit</i> in the Performance menu if you use the Power tab.</div>
+</section>
+
+<!-- ============================== 2 ============================== -->
+<section class="chapter">
+  <h1><span class="chap-num">2</span>Installing, updating and removing</h1>
+
+  <h2>Install</h2>
+  <ol class="steps">
+    <li>Install <a href="https://decky.xyz">Decky Loader</a> if you do not have it yet.</li>
+    <li>If <b>Legion Go Gyro</b> is installed, uninstall it first. Its tuning and calibration are copied over automatically the first time Legion Go Toolbox starts.</li>
+    <li>Copy <code>legion-go-toolbox.zip</code> onto the Legion Go (Downloads is fine).</li>
+    <li>In Gaming Mode open the Quick Access menu <kbd>…</kbd> → Decky (plug icon) → gear icon → <b>General</b> → turn on <b>Developer mode</b>.</li>
+    <li>In the same settings open <b>Developer</b> → <b>Install plugin from ZIP file</b> → choose the zip.</li>
+    <li>Open <b>Legion Go Toolbox</b> from the Decky list.</li>
+  </ol>
+
+  <h2>Update</h2>
+  <p>Install the new zip the same way. Decky replaces the old version; your settings are kept and carried forward automatically (for example, version 2.2 moves an untouched controller type to the new Steam Deck default and adds the default swap layout).</p>
+
+  <h2>Remove</h2>
+  <p>Uninstall it from Decky's plugin list. Before that, switch off <i>Manage power</i>, <i>Custom fan curve</i> and <i>Swap menu buttons</i> if you want the firmware and SteamOS defaults back straight away - the plugin hands these back to the firmware when they are switched off. Lights, remapping and the charge mode are stored in the hardware and stay as last set.</p>
+</section>
+
+<!-- ============================== 3 ============================== -->
+<section class="chapter">
+  <h1><span class="chap-num">3</span>Finding your way around</h1>
+
+  <p>The plugin opens on <b>Home</b>. Switch tabs with <kbd>LB</kbd> / <kbd>RB</kbd> or by tapping the icons along the top.</p>
+
+  <table>
+    <tr><th>Icon</th><th>Tab</th><th>What it holds</th></tr>
+    <tr><td>House</td><td class="k">Home</td><td>One status line per module (tap one to jump there), battery and 80 % charge limit, device, version, reset</td></tr>
+    <tr><td>Lightning bolt</td><td class="k">Power</td><td>Power mode, TDP, Auto TDP for a frame rate, per-game profiles, CPU boost</td></tr>
+    <tr><td>Fan</td><td class="k">Fan</td><td>Custom fan curve, presets, full speed, temperature</td></tr>
+    <tr><td>Light bulb</td><td class="k">Lights</td><td>Stick lights, power-button light</td></tr>
+    <tr><td>Gamepad</td><td class="k">Controls</td><td>Swapped menu buttons, back-button remapping, touchpad</td></tr>
+    <tr><td>Rotating screen</td><td class="k">Gyro</td><td>Gyro in Steam games and per-controller gyro for emulators</td></tr>
+  </table>
+
+  <h2>Reading the screens</h2>
+  <ul>
+    <li><b>"… is not available"</b> - the device or SteamOS cannot do this. The text underneath names the reason, and where there is a way to get it, says how.</li>
+    <li><b>Problem</b> (orange) - the last change did not take effect; the text is what the hardware or system reported.</li>
+    <li><b>Now</b> - what the hardware is actually doing at this moment, read from the device, not what was requested.</li>
+  </ul>
+  <p>Changes are saved as you make them; there is no Save button.</p>
+</section>
+
+<!-- ============================== 4 ============================== -->
+<section class="chapter">
+  <h1><span class="chap-num">4</span>Home and battery</h1>
+
+  <h2>Overview</h2>
+  <p>Five rows - Power, Fan, Lights, Buttons, Gyro - each show a one-line summary, for example <i>Custom · 12 W · auto · 60 fps</i>. If a module has a problem, its row shows that instead. Select a row to open its tab.</p>
+
+  <h2>Battery</h2>
+  <p>Shows the charge level and whether it is charging.</p>
+  <h3>Limit charge to 80 %</h3>
+  <p>Turns on the battery's <i>Long Life</i> mode: charging stops at about 80 %. Worth it if the Legion Go spends a lot of time on the charger. The setting is stored in the firmware and survives reboots; turn it off before a long trip to get a full charge.</p>
+
+  <h2>About</h2>
+  <p><b>Reset hardware settings</b> returns Power, Fan, Lights, Battery and Controls to their defaults (all off, Steam Deck controller, default swap layout). It does not touch the gyro's calibration and tuning - those have their own reset in the Gyro tab's advanced options.</p>
+</section>
+
+<!-- ============================== 5 ============================== -->
+<section class="chapter">
+  <h1><span class="chap-num">5</span>Power</h1>
+
+  <div class="warn"><b>First:</b> open Steam's Performance menu and turn off its <i>TDP limit</i>. If both set the power limit they keep overwriting each other.</div>
+
+  <h2>Manage power</h2>
+  <p>Hands power control to the plugin. The <b>Now</b> line shows the firmware's actual mode and limit. When you switch <i>Manage power</i> off again, the device is put back into the firmware's <i>Balanced</i> mode.</p>
+
+  <h2>Power mode</h2>
+  <table>
+    <tr><th>Mode</th><th>What happens</th></tr>
+    <tr><td class="k">Custom (set the watts)</td><td>You choose the TDP with a slider, within the range the firmware allows. Needed for Auto TDP and for a custom fan curve.</td></tr>
+    <tr><td class="k">Quiet / Balanced / Performance</td><td>The firmware's own modes, the same as Legion Space's. The firmware picks limits and fan curve itself.</td></tr>
+  </table>
+
+  <h2>Auto TDP for a frame rate</h2>
+  <p>You choose a frame rate; the plugin keeps the power as low as possible while still reaching it. Lower power means a cooler, quieter device and longer battery life.</p>
+
+  <h3>Setting it up</h3>
+  <ol class="steps">
+    <li>Power mode: <b>Custom</b>.</li>
+    <li>Turn on <b>Auto TDP for a frame rate</b>.</li>
+    <li>Choose a <b>Target frame rate</b> (30, 40, 45, 50, 60, 72, 90, 120 or 144 fps).</li>
+    <li>Set <b>Maximum TDP</b> - the most it may use - and <b>Minimum TDP</b> - the least it may use.</li>
+    <li>Set a frame limit at the same number, in the game or in Steam's Performance menu. Without a limit the game simply runs as fast as it can and Auto TDP brings the power down until it reaches the target.</li>
+  </ol>
+
+  <h3>How it decides</h3>
+  <table>
+    <tr><th>Situation</th><th>What Auto TDP does</th></tr>
+    <tr><td>Frame rate below 90 % of the target</td><td>Adds 3 W at once</td></tr>
+    <tr><td>Frame rate between 90 and 97 % of the target</td><td>Adds 1 W</td></tr>
+    <tr><td>Target held for 6 seconds</td><td>Tries 1 W less</td></tr>
+    <tr><td>That lower setting cannot hold the target</td><td>Goes straight back and leaves that setting alone for 45 seconds - longer each time it fails again, up to 10 minutes. This is what makes it settle instead of bouncing.</td></tr>
+    <tr><td>Just after a change</td><td>Ignores 2.5 seconds of readings while the game adjusts</td></tr>
+    <tr><td>Menu, loading screen, paused game</td><td>Keeps the last setting</td></tr>
+    <tr><td>No game running</td><td>Uses your Maximum TDP</td></tr>
+  </table>
+
+  <h3>Status line</h3>
+  <table>
+    <tr><th>Shows</th><th>Meaning</th></tr>
+    <tr><td>at the lowest power that holds the target</td><td>Settled - this is the result you want</td></tr>
+    <tr><td>target held – trying less power</td><td>Testing one watt lower</td></tr>
+    <tr><td>below target – adding power</td><td>The game needs more power right now</td></tr>
+    <tr><td>at your maximum</td><td>The target needs more than your Maximum TDP allows: raise the maximum or lower the target</td></tr>
+    <tr><td>at your minimum</td><td>The game is light; it reaches the target at your Minimum TDP</td></tr>
+    <tr><td>waiting for the game to draw frames</td><td>No frame rate to measure (menu, paused, not in Gaming Mode)</td></tr>
+  </table>
+
+  <h2>Separate settings per game</h2>
+  <p>With this on, the profile you edit belongs to the game that is running, and is used whenever that game runs. Games without their own profile use the default one. <b>Use the default for this game</b> deletes the game's profile.</p>
+
+  <h2 style="break-before: page">Smooth frame rate</h2>
+  <p>A steady average is not enough for a smooth picture: every frame has to arrive at the same interval. Uneven frames are what you see as jitter even at 60 fps. Smooth mode sets this up per game.</p>
+  <ol class="steps">
+    <li>Start the game and open the Power tab.</li>
+    <li>Under <b>Smooth frame rate</b> choose a cap, for example <i>60 fps · screen 60 Hz</i> or <i>72 fps · screen 144 Hz</i>.</li>
+    <li>Quit and start the game again - the cap goes into its launch options and applies from the next start.</li>
+    <li>In Steam's Performance menu set <b>Framerate limit</b> off for this game, and switch off the game's own frame limiter and V-Sync.</li>
+  </ol>
+  <h3>What it does</h3>
+  <table>
+    <tr><th>Part</th><th>How</th></tr>
+    <tr><td class="k">Even frame cap</td><td>MangoHud's limiter in <i>early</i> mode, the Linux counterpart of RTSS's async / front-edge limiter shown in frame-pacing guides. Games without MangoHud's Vulkan layer use DXVK's limiter (DirectX 9-11 games under Proton).</td></tr>
+    <tr><td class="k">Matching refresh rate</td><td>While the game runs the screen switches to a rate the cap divides evenly, so each frame stays on screen for the same time: 30 and 60 fps at 60 Hz; 36, 48, 72 and 144 fps at 144 Hz. gamescope's own limiter stays off, so limiters never stack. The refresh rate is handed back when the game closes.</td></tr>
+    <tr><td class="k">Auto TDP</td><td>Aims at the cap and judges the slowest frame of each half second, not only the average. It does not cut power while frames arrive unevenly, and adds power when they keep arriving late.</td></tr>
+  </table>
+  <p>The <b>Now</b> line shows the measured frame rate and the slowest frame; the closer the two, the smoother. Your own launch options are kept, and turning Smooth mode off removes exactly what it added. <b>Games with Smooth mode</b> lists every game with a cap.</p>
+  <div class="note"><b>Limits.</b> Stutter from shader compilation or loading comes from the game itself and cannot be removed by a limiter. Smooth mode works in Gaming Mode only.</div>
+
+  <h2>CPU boost</h2>
+  <p>Turning boost off keeps the processor at its base clock. It runs cooler and quieter and often costs only a few frames, especially together with a frame limit.</p>
+</section>
+
+<!-- ============================== 6 ============================== -->
+<section class="chapter">
+  <h1><span class="chap-num">6</span>Fan</h1>
+
+  <div class="note"><b>Requirement.</b> The Legion Go only accepts a fan curve through a Lenovo firmware call, and Linux can make that call only with the <code>acpi_call</code> kernel module. SteamOS does not include it, and this plugin deliberately does not install kernel modules (that means modifying the read-only system after every SteamOS update). If the module is present - for example installed with Legion Center's <i>Install Fan Support</i>, or on Bazzite - the curve editor appears by itself. Without it the fan follows the firmware's own curve, which is safe.</div>
+
+  <h2>Custom fan curve</h2>
+  <p>The firmware keeps control of the fan and of overheating protection; the plugin only changes the curve it follows. The firmware uses a custom curve only in the <i>Custom</i> power mode. If the Power tab has a firmware mode selected, the Fan tab says <i>Not in use right now</i>.</p>
+
+  <h3>Presets</h3>
+  <p>Fan level per temperature (°C). The firmware's scale goes up to 115.</p>
+  <table>
+    <tr><th>Preset</th><th>10</th><th>20</th><th>30</th><th>40</th><th>50</th><th>60</th><th>70</th><th>80</th><th>90</th><th>100</th></tr>
+    <tr><td class="k">Silent</td><td>44</td><td>48</td><td>55</td><td>60</td><td>71</td><td>79</td><td>87</td><td>87</td><td>100</td><td>100</td></tr>
+    <tr><td class="k">Balanced</td><td>44</td><td>50</td><td>58</td><td>66</td><td>78</td><td>88</td><td>96</td><td>100</td><td>105</td><td>110</td></tr>
+    <tr><td class="k">Cool</td><td>50</td><td>56</td><td>64</td><td>74</td><td>86</td><td>96</td><td>105</td><td>110</td><td>115</td><td>115</td></tr>
+  </table>
+  <p>Pick a preset, or move the ten <i>At … °C</i> sliders yourself (the preset then shows <i>Custom</i>). The small graph shows the curve and, as a dashed line, the current temperature.</p>
+
+  <h3>Safety limits</h3>
+  <ul>
+    <li>No point can be set below Lenovo's own minimum for the Legion Go - the <i>Silent</i> row above. Handheld Daemon enforces the same limit.</li>
+    <li>The curve always rises with temperature: raising a point lifts the points after it, lowering a point lowers the ones before it.</li>
+    <li>Saved curves from older versions are raised to this minimum automatically.</li>
+  </ul>
+
+  <h2>Full speed</h2>
+  <p>Runs the fan at maximum, ignoring the curve.</p>
+
+  <h2 style="break-before: page">Per game and on charger</h2>
+  <p>Two switches let the fan setting depend on what you are doing:</p>
+  <ul>
+    <li><b>Separate settings per game</b> - a game can have its own setting.</li>
+    <li><b>Separate settings on charger</b> - one setting on battery, another while plugged in.</li>
+  </ul>
+  <p>With both on there are up to four kinds of setting. The plugin uses the most specific one that exists:</p>
+  <table>
+    <tr><th>Order</th><th>Setting</th><th>Example</th></tr>
+    <tr><td>1</td><td>This game, on the charger</td><td>Elden Ring plugged in: full speed</td></tr>
+    <tr><td>2</td><td>This game</td><td>Elden Ring on battery: Balanced</td></tr>
+    <tr><td>3</td><td>All games, on the charger</td><td>Anything else plugged in: Cool</td></tr>
+    <tr><td>4</td><td>All games</td><td>Anything else on battery: Silent</td></tr>
+  </table>
+  <p>It switches by itself when a game starts or closes and within two seconds of plugging in or unplugging.</p>
+  <h3>Making a setting</h3>
+  <ol class="steps">
+    <li>Get into the situation you want to set up - start the game, and plug in or unplug.</li>
+    <li>Open the Fan tab. The heading names what you are editing, for example <i>ELDEN RING · on charger</i>. Until you change something it says <i>Using the general setting</i> and which one.</li>
+    <li>Change the preset, the curve or full speed. From then on that case has its own setting.</li>
+  </ol>
+  <p><b>Use the general setting here</b> removes the setting you are looking at. <b>Saved fan settings</b> lists every setting with its preset; selecting one removes it.</p>
+
+  <h2>Why a setting can "turn itself off" - and what the plugin does</h2>
+  <p>The firmware throws away <i>full speed</i> and the custom curve whenever the power mode changes - no matter whether Steam, another tool, Auto TDP or a manual change caused it. The fan then quietly falls back to the stock curve and temperatures climb.</p>
+  <p>The plugin therefore reads both back from the firmware every 5 seconds, and one second after each of its own power changes, and puts them back when they are gone. When this has happened the Fan tab shows a <b>Kept on</b> line, for example <i>The firmware dropped the fan setting 3 times (last just now); the plugin put it back.</i></p>
+</section>
+
+<!-- ============================== 7 ============================== -->
+<section class="chapter">
+  <h1><span class="chap-num">7</span>Lights</h1>
+
+  <h2>Stick lights</h2>
+  <p>The rings around both sticks. Until you change something here the plugin leaves them as they are; the first change takes control.</p>
+  <table>
+    <tr><th>Setting</th><th>Options</th></tr>
+    <tr><td class="k">Effect</td><td>Solid colour · Pulse · Rainbow · Spiral</td></tr>
+    <tr><td class="k">Colour</td><td>Hue and Saturation sliders (Solid and Pulse only). Saturation all the way down gives white.</td></tr>
+    <tr><td class="k">Brightness</td><td>5 – 100 %</td></tr>
+    <tr><td class="k">Speed</td><td>0 – 100 % (all effects except Solid)</td></tr>
+  </table>
+  <p>The setting is stored in the controllers and sent again whenever they reconnect.</p>
+
+  <h2>Power-button light</h2>
+  <ul>
+    <li><b>Power light</b> - on or off.</li>
+    <li><b>Off while sleeping</b> - switches the light off when the Legion Go goes to sleep, so it does not glow in a dark room, and back on when it wakes. If you keep the light off anyway, it stays off.</li>
+  </ul>
+</section>
+
+<!-- ============================== 8 ============================== -->
+<section class="chapter">
+  <h1><span class="chap-num">8</span>Controls</h1>
+
+  <h2>Swap menu buttons</h2>
+  <p>Exchanges the two Legion buttons (Steam on the left controller, Quick Access on the right) with View and Menu. Choose the <b>Layout</b>:</p>
+  <table>
+    <tr><th>Layout</th><th>Press</th><th>You get</th></tr>
+    <tr><td class="k" rowspan="4">Steam ↔ Menu, QAM ↔ View<br><span class="muted">(default)</span></td><td>Menu</td><td>Steam menu</td></tr>
+    <tr><td>View</td><td>Quick Access menu</td></tr>
+    <tr><td>Legion L (Steam)</td><td>Menu</td></tr>
+    <tr><td>Legion R (Quick Access)</td><td>View</td></tr>
+    <tr><td class="k" rowspan="4">Steam ↔ View, QAM ↔ Menu</td><td>View</td><td>Steam menu</td></tr>
+    <tr><td>Menu</td><td>Quick Access menu</td></tr>
+    <tr><td>Legion L (Steam)</td><td>View</td></tr>
+    <tr><td>Legion R (Quick Access)</td><td>Menu</td></tr>
+  </table>
+  <p>The swap is a small profile loaded into InputPlumber (SteamOS's controller layer) on top of the active one, so the other mappings stay. If InputPlumber restarts, the plugin loads it again within a few seconds. Switching it off restores the previous profile.</p>
+
+  <h2>Remap back buttons</h2>
+  <p>Gives Y1, Y2 (left controller), Y3, M2 and M3 (right controller) a different function, using Lenovo's own remapping stored in the controllers.</p>
+  <table>
+    <tr><th>Can become</th></tr>
+    <tr><td>No action · A · B · X · Y · LB · RB · LT · RT · View · Menu · D-pad up / down / left / right · Left or right stick click · Left or right stick up / down / left / right</td></tr>
+  </table>
+  <div class="note"><b>Note.</b> Steam also sees the back buttons as extra buttons. In games where you use this remapping, leave them unassigned in Steam Input, otherwise a press does both. Switching remapping off sets all five back to <i>No action</i> in the controllers.</div>
+
+  <h2>Touchpad</h2>
+  <p>Switches the touchpad on the right controller off (or on again), for example if your palm keeps touching it.</p>
+</section>
+
+<!-- ============================== 9 ============================== -->
+<section class="chapter">
+  <h1><span class="chap-num">9</span>Gyro</h1>
+
+  <p>The Legion Go has three motion sensors: one in each detachable controller and one in the tablet. The Gyro tab uses them in two separate ways.</p>
+
+  <div class="grid2">
+    <div class="card"><h4>Gyro in Steam games</h4>Any game, through Steam Input. Uses the tablet's sensor, so it works with the controllers attached - like a Steam Deck.</div>
+    <div class="card"><h4>Gyro for emulators</h4>Dolphin, Ryujinx, Eden, Cemu and others. Each controller's own sensor, so detached controllers work like Wii Remotes or Joy-Cons.</div>
+  </div>
+
+  <h2>Gyro in Steam games</h2>
+  <p>Steam offers gyro settings only for controllers that have a gyro. On its own, InputPlumber presents the Legion Go as an Xbox controller, which has none. The plugin therefore presents it as a <b>Steam Deck controller</b> by default.</p>
+  <table>
+    <tr><th>Type</th><th>Result</th></tr>
+    <tr><td class="k">Steam Deck controller (default)</td><td>Steam's full gyro options; A/B/X/Y lettering like Xbox</td></tr>
+    <tr><td class="k">Xbox controller (no gyro)</td><td>No gyro in Steam; what InputPlumber does without this plugin</td></tr>
+    <tr><td class="k">DualSense / DualSense Edge</td><td>Gyro; PlayStation symbols in Steam's menus and in games with their own PlayStation support</td></tr>
+  </table>
+  <h3>A different type for one game</h3>
+  <p>While a game is running, a second list with the game's name appears. Choose a type there and it is remembered for that game: the plugin switches to it whenever the game starts and back to the all-games type when it closes. <i>Same as all games</i> removes the game's own choice; so does selecting the game under <b>Games with their own type</b>.</p>
+  <div class="note"><b>Note.</b> Switching type reconnects the virtual controller, so Steam may briefly show a controller notification as a game starts.</div>
+
+  <h3>Button symbols</h3>
+  <p>Most games show <b>Xbox symbols</b> whatever type you pick, because Steam Input hands every game an Xbox-style controller. Games with their own PlayStation support may switch to PlayStation symbols when Steam sees a DualSense; most of them have a button-prompt option in their own settings. Steam's own menus and the controller-settings screen always show the type you picked. The Steam Deck type keeps A/B/X/Y lettering, which makes it the best all-round choice.</p>
+
+  <h3>Setting up gyro in a game</h3>
+  <ol class="steps">
+    <li>Pick the type before starting the game - changing it reconnects the controller once.</li>
+    <li>In the game press the Steam button → <b>Controller settings</b> → <b>Gyro</b> and set it up like on a Steam Deck (for example <i>As mouse</i> or <i>As joystick</i>, enabled while touching the right stick).</li>
+  </ol>
+  <div class="note"><b>Layouts per controller type.</b> Steam stores controller layouts separately for each controller type. After switching type, a game may start with that type's default layout.</div>
+
+  <h2>Gyro for emulators</h2>
+  <p>The plugin runs a motion server in the DSU / CemuHook format on <code>127.0.0.1</code>, port <code>26760</code>. Add it once in each emulator.</p>
+  <table>
+    <tr><th>Slot</th><th>Device</th><th>Use it for</th></tr>
+    <tr><td class="k">1</td><td>Left controller</td><td>Nunchuk, left Joy-Con, player 2's remote</td></tr>
+    <tr><td class="k">2</td><td>Right controller</td><td>Wii Remote, right Joy-Con</td></tr>
+    <tr><td class="k">0</td><td>Whole handheld</td><td>Gyro aiming with the controllers attached (right controller's sensor, else left, else the tablet)</td></tr>
+  </table>
+
+  <h3>Calibrate once</h3>
+  <p>Press <b>Calibrate</b> and leave the controllers alone for a few seconds - on a table is best. It finishes as soon as it sees a calm second; if the sensors never get perfectly quiet it uses the calmest second it saw. After that, drift is removed automatically whenever a controller rests.</p>
+
+  <h3>Dolphin - Wii Sports and other Wii games</h3>
+  <ol class="steps">
+    <li><b>Controllers</b> → <b>Alternate Input Sources</b> → enable <b>DSU Client</b> → add server <code>127.0.0.1</code>, port <code>26760</code>.</li>
+    <li><b>Wii Remote 1</b> → <i>Emulated Wii Remote</i> → <b>Configure</b>.</li>
+    <li>Open the <b>Motion Input</b> tab, choose the device <code>DSUClient/2/…</code> (right controller) and press <b>Default</b>.</li>
+    <li>Map the buttons on the other tabs - from the same device or from your normal gamepad.</li>
+    <li>For a Nunchuk, set the extension's motion to <code>DSUClient/1/…</code>. For two players, give the second remote slot 1.</li>
+  </ol>
+  <p>Hold the controller like a remote: buttons up, the top edge pointing at the screen.</p>
+
+  <h3>Switch emulators - Switch Sports and other motion games</h3>
+  <div class="grid2">
+    <div class="card"><h4>Ryujinx / Ryubing</h4>Settings → Input → configure the player → <b>Motion</b> → enable, tick <b>Use CemuHook compatible motion</b>, host <code>127.0.0.1</code>, port <code>26760</code>, <b>Controller Slot 1</b>. Leave <i>Mirror Input</i> off and set <b>Right JoyCon Slot 2</b>.</div>
+    <div class="card"><h4>Eden / Citron / other yuzu forks</h4>Configure → Controls → Advanced → <b>Motion/Touch</b> → Configure → add <code>127.0.0.1:26760</code>. On the player page click <b>Motion 1</b> and shake the left controller, then <b>Motion 2</b> and shake the right one.</div>
+  </div>
+
+  <h3 style="break-before: page">Advanced options</h3>
+  <p>Turn on <b>Advanced options</b> at the bottom of the tab for per-slot settings. Turning it off again only hides them; if anything was changed the simple view offers <b>Use default settings</b>.</p>
+  <table>
+    <tr><th>Setting</th><th>What it does</th></tr>
+    <tr><td class="k">Enabled</td><td>Switch one slot off; a controller's sensor is powered only while something uses it</td></tr>
+    <tr><td class="k">Sensitivity</td><td>0.2 – 3 × the rotation</td></tr>
+    <tr><td class="k">Deadzone</td><td>Ignores rotation below 0 – 5 °/s; keep at 0 for pointing and sports games</td></tr>
+    <tr><td class="k">How it is held</td><td>For a controller held turned (sideways or upside down)</td></tr>
+    <tr><td class="k">Invert pitch / yaw / roll</td><td>Flip one axis if a game moves the wrong way</td></tr>
+    <tr><td class="k">Motion source</td><td>Slot 0 only: Automatic, right, left or tablet sensor</td></tr>
+    <tr><td class="k">Auto-calibrate when resting</td><td>Removes drift whenever a controller lies still</td></tr>
+    <tr><td class="k">Port</td><td>26760 (default) – 26763, if another motion server already uses 26760</td></tr>
+    <tr><td class="k">Allow other devices</td><td>Lets emulators on other computers in your network use the motion data (off by default)</td></tr>
+  </table>
+</section>
+
+<!-- ============================== 10 ============================== -->
+<section class="chapter">
+  <h1><span class="chap-num">10</span>Troubleshooting</h1>
+  <table>
+    <tr><th style="width:38%">Symptom</th><th>What to do</th></tr>
+    <tr><td>A feature says "not available"</td><td>The text under it gives the reason. Most often: no <code>acpi_call</code> (fan), not in Gaming Mode (Auto TDP), or InputPlumber not running (buttons, Steam gyro).</td></tr>
+    <tr><td>TDP keeps jumping back</td><td>Turn off Steam's own TDP limit (Performance menu) and remove other TDP plugins.</td></tr>
+    <tr><td>Auto TDP stays "at your maximum"</td><td>The game cannot reach the target within your Maximum TDP. Raise the maximum or lower the target.</td></tr>
+    <tr><td>Auto TDP says "waiting for the game to draw frames"</td><td>No game is in focus, it is paused, or you are in Desktop Mode.</td></tr>
+    <tr><td>Fan full speed or curve switches itself off</td><td>The firmware drops them when the power mode changes. The plugin restores them within about 5 seconds; the Fan tab's <i>Kept on</i> line shows when it did.</td></tr>
+    <tr><td>No fan curve editor</td><td>The <code>acpi_call</code> module is missing (chapter 6).</td></tr>
+    <tr><td>Stick lights or remapping: "controllers not found"</td><td>Wake the controllers by pressing a button, then change the setting again.</td></tr>
+    <tr><td>Menu buttons back to normal</td><td>InputPlumber restarted; the swap is re-applied within a few seconds.</td></tr>
+    <tr><td>No gyro option in Steam's controller settings</td><td>Gyro tab → the type for <i>All games</i> (or for that game) must not be <i>Xbox controller</i>. Restart the game after changing it.</td></tr>
+    <tr><td>PlayStation symbols in a game</td><td>The game supports PlayStation controllers natively. Use its button-prompt setting, or give that game the Steam Deck type.</td></tr>
+    <tr><td>Emulator gets no motion</td><td>Check the server address and slot; the Gyro tab shows "1 emulator connected" once it works. <code>tools/dsu_monitor.py</code> prints the live data without an emulator.</td></tr>
+    <tr><td>"Port 26760 is already used"</td><td>Another motion server is running (EmuDeck can install one). Stop it, or pick another port here and in the emulator.</td></tr>
+    <tr><td>Motion drifts</td><td>Lay the controllers down and press Calibrate.</td></tr>
+    <tr><td>An axis moves the wrong way</td><td>Gyro → Advanced options → that slot → Tuning → Invert.</td></tr>
+  </table>
+  <p>Logs for a bug report are in <code>~/homebrew/logs/Legion Go Toolbox/</code>.</p>
+</section>
+
+<!-- ============================== 11 ============================== -->
+<section class="chapter">
+  <h1><span class="chap-num">11</span>Reference</h1>
+
+  <h2>Files</h2>
+  <table>
+    <tr><th>What</th><th>Where</th></tr>
+    <tr><td>Hardware settings</td><td><code>~/homebrew/settings/Legion Go Toolbox/toolbox.json</code></td></tr>
+    <tr><td>Gyro settings and calibration</td><td><code>~/homebrew/settings/Legion Go Toolbox/gyro.json</code></td></tr>
+    <tr><td>Logs</td><td><code>~/homebrew/logs/Legion Go Toolbox/</code></td></tr>
+  </table>
+
+  <h2>What is applied when</h2>
+  <table>
+    <tr><th>Event</th><th>Applied again</th></tr>
+    <tr><td>Plugin start</td><td>Everything you switched on</td></tr>
+    <tr><td>Waking from sleep</td><td>Everything, 3 seconds after waking; the power light is restored right away</td></tr>
+    <tr><td>Controllers reconnect</td><td>Stick lights, remapping, touchpad</td></tr>
+    <tr><td>A game starts or closes</td><td>Its power profile, fan setting and controller type (only what differs)</td></tr>
+    <tr><td>Charger plugged in or out</td><td>The fan setting, within 2 seconds (when <i>Separate settings on charger</i> is on)</td></tr>
+    <tr><td>Every 5 seconds</td><td>Fan full speed / curve (if dropped), menu-button swap and controller type (if InputPlumber restarted)</td></tr>
+    <tr><td>Every 10 seconds</td><td>Power mode and TDP, if something else changed them</td></tr>
+  </table>
+
+  <h2>Fixed limits</h2>
+  <table>
+    <tr><td class="k">Fan curve minimum</td><td>44 / 48 / 55 / 60 / 71 / 79 / 87 / 87 / 100 / 100 at 10 … 100 °C</td></tr>
+    <tr><td class="k">TDP range</td><td>As reported by the firmware for each limit</td></tr>
+    <tr><td class="k">Motion server</td><td>UDP, <code>127.0.0.1:26760</code> (local only unless <i>Allow other devices</i> is on)</td></tr>
+  </table>
+
+  <h2>Testing status</h2>
+  <p>Besides use on a Legion Go (83E1), every module is covered by automated tests with simulated hardware (137 tests), and every module reads the hardware back after a change and reports it when a change did not take.</p>
+
+  <h2>Credits</h2>
+  <p class="muted">Legion Go Toolbox is its own code, built on what these projects worked out about the hardware: Handheld Daemon and hwinfo (controller protocol, Lenovo firmware methods and fan minimum), Legion Center and LegionGoRemapper (remapping, fan table, charge limit), HueSync (power light), SimpleDeckyTDP (power limits), DeckyPlumber and InputPlumber (menu-button swap), Panel de Control (frame times from gamescope), decky-lsfg-vk (tabs) and Legion Go 2 Companion (overview layout).</p>
+</section>
+
+</body>
+</html>
