@@ -32,7 +32,16 @@ _REGISTRY = 2
 _SYNC = 3
 _CONTROL = 4
 
+_REQ_REFRESH = 1       # gamescope_control.set_app_target_refresh_cycle
 _REQ_PERF = 6          # gamescope_control.request_app_performance_stats
+_EVT_DISPLAY = 1       # gamescope_control.active_display_info
+
+# set_app_target_refresh_cycle flags
+FLAG_INTERNAL = 0x1
+FLAG_ALLOW_REFRESH_SWITCHING = 0x2
+FLAG_ONLY_CHANGE_REFRESH_RATE = 0x4
+DISPLAY_INTERNAL = 0x1
+DISPLAY_VRR = 0x4
 _EVT_PERF = 3          # gamescope_control.app_performance_stats
 
 
@@ -75,6 +84,7 @@ class Connection(object):
     def __init__(self, path, timeout=2.0):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._buf = b""
+        self._next_id = _CONTROL + 1
         try:
             self.sock.settimeout(timeout)
             self.sock.connect(path)
@@ -149,6 +159,54 @@ class Connection(object):
     def request(self, app_id):
         self._send(_msg(_CONTROL, _REQ_PERF, struct.pack("<I", app_id)))
 
+    def roundtrip(self, timeout=2.0):
+        """Wait until gamescope has handled everything sent so far.
+        Returns the control events that arrived meanwhile."""
+        # New object ids must count up per connection (Wayland rule).
+        cb = self._next_id
+        self._next_id += 1
+        self._send(_msg(_DISPLAY, 0, struct.pack("<I", cb)))
+        events = []
+        deadline = time.monotonic() + timeout
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise ProbeError("gamescope did not answer")
+            for obj, opcode, payload in self._recv(left):
+                if obj == cb and opcode == 0:
+                    return events
+                if obj == _CONTROL:
+                    events.append((opcode, payload))
+                elif obj == _DISPLAY and opcode == 0:
+                    raise ProbeError("gamescope reported a protocol error")
+
+    def display_info(self):
+        """Active display: dict(name, internal, vrr, rates) or None.
+        gamescope sends it right after the interface is bound."""
+        info = None
+        for opcode, payload in self.roundtrip():
+            if opcode != _EVT_DISPLAY:
+                continue
+            name, off = _read_string(payload, 0)
+            _, off = _read_string(payload, off)          # make
+            _, off = _read_string(payload, off)          # model
+            (flags,) = struct.unpack_from("<I", payload, off)
+            (size,) = struct.unpack_from("<I", payload, off + 4)
+            raw = payload[off + 8: off + 8 + size]
+            rates = sorted({r for (r,) in struct.iter_unpack("<I", raw[: size - size % 4]) if r})
+            info = {"name": name, "internal": bool(flags & DISPLAY_INTERNAL),
+                    "vrr": bool(flags & DISPLAY_VRR), "rates": rates}
+        return info
+
+    def set_refresh_cycle(self, fps, internal=True):
+        """Switch the screen to the highest refresh rate that is a multiple
+        of `fps`, without gamescope's own frame limiter (0 clears)."""
+        flags = FLAG_ALLOW_REFRESH_SWITCHING | FLAG_ONLY_CHANGE_REFRESH_RATE
+        if internal:
+            flags |= FLAG_INTERNAL
+        self._send(_msg(_CONTROL, _REQ_REFRESH, struct.pack("<II", int(fps), flags)))
+        self.roundtrip()
+
     def frames(self, timeout):
         """Frame times (seconds) of perf answers that arrived."""
         out = []
@@ -182,6 +240,7 @@ def measure(app_id, emit, stopped, socket_paths=None, window=WINDOW_S,
             conn.request(app_id)
             frames = 0
             total = 0.0
+            worst = 0.0
             window_end = clock() + window
             while not stopped():
                 for app, seconds in conn.frames(max(0.0, window_end - clock())):
@@ -192,10 +251,13 @@ def measure(app_id, emit, stopped, socket_paths=None, window=WINDOW_S,
                     if 0.0 < seconds < 1.0:
                         frames += 1
                         total += seconds
+                        worst = max(worst, seconds)
                 if clock() >= window_end:
-                    emit(frames / total if frames and total > 0 else None, frames)
+                    emit(frames / total if frames and total > 0 else None, frames,
+                         1.0 / worst if frames and worst > 0 else None)
                     frames = 0
                     total = 0.0
+                    worst = 0.0
                     window_end = clock() + window
         except (OSError, ProbeError):
             emit(None, 0)
@@ -217,8 +279,9 @@ def main(argv):
     app_id = int(argv[1]) & 0xFFFFFFFF
     parent = os.getppid()
 
-    def emit(fps, frames):
-        sys.stdout.write("%s %d\n" % ("-" if fps is None else "%.2f" % fps, frames))
+    def emit(fps, frames, low=None):
+        sys.stdout.write("%s %d %s\n" % ("-" if fps is None else "%.2f" % fps, frames,
+                                         "-" if low is None else "%.2f" % low))
         sys.stdout.flush()
 
     def stopped():

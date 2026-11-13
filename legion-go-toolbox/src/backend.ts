@@ -39,6 +39,9 @@ export interface Settings {
     power_led: { managed: boolean; on: boolean; off_in_sleep: boolean };
   };
   battery: { charge_limit: boolean | null };
+  smooth: {
+    games: Record<string, { fps: number; name: string; prefix: string; added_command: boolean }>;
+  };
   fan: {
     enabled: boolean;
     per_game: boolean;
@@ -85,7 +88,8 @@ export type CapName =
   | "sticks"
   | "remap"
   | "swap_menu"
-  | "steam_gyro";
+  | "steam_gyro"
+  | "smooth";
 export type Caps = Record<CapName, Capability> & {
   steam_gyro: Capability & { types: string[] };
 };
@@ -95,6 +99,15 @@ export interface HubStatus {
   errors: Record<string, string>;
   app: { id: number | null; name: string };
   steam_controller: { type: string; source: "game" | "default" };
+  smooth: {
+    fps: number | null;
+    refresh: number | null;
+    rates: number[];
+    vrr: boolean;
+    choices: number[];
+    active: boolean;
+    measured: { fps: number | null; low: number | null } | null;
+  };
   power: {
     profile_key: string;
     mode: string | null;
@@ -106,6 +119,8 @@ export interface HubStatus {
       active: boolean;
       state: string | null;
       fps: number | null;
+      low: number | null;
+      target: number | null;
       probe_error: string | null;
     };
   };
@@ -144,6 +159,13 @@ export const deletePowerProfile = callable<[key: string], Settings>("delete_powe
 export const setRunningApp = callable<[appId: number | null, name: string], void>(
   "set_running_app",
 );
+export const smoothPlan = callable<[fps: number], { prefix: string; limiter: string }>(
+  "smooth_plan",
+);
+export const setSmoothGame = callable<
+  [appId: number, fps: number | null, name: string, prefix: string, addedCommand: boolean],
+  Settings
+>("set_smooth_game");
 export const deleteFanProfile = callable<[key: string], Settings>("delete_fan_profile");
 export const setGameController = callable<
   [appId: number, kind: string | null, name: string],

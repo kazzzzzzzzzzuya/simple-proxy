@@ -14,6 +14,7 @@ import helpers  # noqa: F401  (sets up sys.path)
 
 from lgo_toolbox import acpi, battery, config as cfg, controller, fan, fps_probe
 from lgo_toolbox import plumber, power, powerled
+from lgo_toolbox import smooth as smoothmod
 from lgo_toolbox.hub import Hub
 
 DEFAULT_PROFILE_YAML = """# comment
@@ -695,6 +696,7 @@ class FakeGamescope(object):
         self.sock.listen(2)
         self.pending = {}
         self.requests = 0
+        self.refresh = []
         self.bound = threading.Event()
         self.conn = None
         self.lock = threading.Lock()
@@ -740,7 +742,13 @@ class FakeGamescope(object):
                             ver, control = struct.unpack_from("<II", body, off)
                             assert (name, iface) == (7, "gamescope_control"), (name, iface)
                             self._send(control, 0, struct.pack("<III", 7, 1, 0))  # feature
+                            rates = struct.pack("<II", 60, 144)
+                            self._send(control, 1, fps_probe._string("eDP-1") + fps_probe._string("LEN")
+                                       + fps_probe._string("Panel") + struct.pack("<I", 0x1)
+                                       + struct.pack("<I", len(rates)) + rates)
                             self.bound.set()
+                        elif obj == control and opcode == 1:
+                            self.refresh.append(struct.unpack("<II", body))
                         elif obj == control and opcode == 6:
                             (app,) = struct.unpack("<I", body)
                             with self.lock:
@@ -778,6 +786,7 @@ class FpsProbe(TempDirCase):
         os.makedirs(os.path.dirname(path))
         server = FakeGamescope(path, **kw)
         self.addCleanup(server.close)
+        self._srv = server
         return server, path
 
     def test_find_sockets(self):
@@ -792,7 +801,7 @@ class FpsProbe(TempDirCase):
         stop = threading.Event()
         t = threading.Thread(
             target=fps_probe.measure,
-            args=(4242, lambda fps, n: got.append((fps, n)), stop.is_set),
+            args=(4242, lambda fps, n, *low: got.append((fps, n)), stop.is_set),
             kwargs={"socket_paths": lambda: [path], "window": 0.25}, daemon=True)
         t.start()
         self.assertTrue(server.bound.wait(3.0))
@@ -817,7 +826,7 @@ class FpsProbe(TempDirCase):
         got = []
         stop = threading.Event()
         t = threading.Thread(
-            target=fps_probe.measure, args=(1, lambda f, n: got.append((f, n)), stop.is_set),
+            target=fps_probe.measure, args=(1, lambda f, n, *low: got.append((f, n)), stop.is_set),
             kwargs={"socket_paths": lambda: [path], "window": 0.1}, daemon=True)
         t.start()
         time.sleep(0.5)
@@ -825,6 +834,19 @@ class FpsProbe(TempDirCase):
         t.join(3.0)
         self.assertTrue(got and all(f is None and n == 0 for f, n in got))
         self.assertEqual(server.requests, 1)        # asked once, never spammed
+
+    def test_display_info_and_refresh(self):
+        _, path = self._server()
+        gs = smoothmod.Gamescope(sockets=lambda: [path])
+        info = gs.display()
+        self.assertEqual(info, {"name": "eDP-1", "internal": True, "vrr": False, "rates": [60, 144]})
+        server = self._srv
+        self.assertTrue(gs.set_refresh(72, True))
+        self.assertTrue(gs.set_refresh(0, True))
+        self.assertEqual(server.refresh, [(72, 7), (0, 7)])
+        none = smoothmod.Gamescope(sockets=lambda: [])
+        self.assertFalse(none.set_refresh(60))
+        self.assertIn("Gaming Mode", none.error)
 
     def test_old_or_foreign_compositor(self):
         _, path = self._server(version=5)
@@ -883,6 +905,51 @@ class FpsProbe(TempDirCase):
         rates = [float(l.split()[0]) for l in out if l and not l.startswith("-")]
         self.assertTrue(rates)
         self.assertAlmostEqual(rates[-1], 40.0, delta=0.01)
+
+
+class SmoothMode(TempDirCase):
+    def test_choices_and_refresh(self):
+        self.assertEqual(smoothmod.fps_choices([60, 144]), [30, 36, 48, 60, 72, 144])
+        self.assertEqual(smoothmod.fps_choices([]), [30, 60])
+        self.assertEqual(smoothmod.refresh_for(60, [60, 144]), 60)
+        self.assertEqual(smoothmod.refresh_for(72, [60, 144]), 144)
+        self.assertEqual(smoothmod.refresh_for(30, [60, 120, 144]), 120)
+        self.assertIsNone(smoothmod.refresh_for(40, [60, 144]))
+
+    def test_launch_prefix_and_layer(self):
+        self.assertEqual(smoothmod.launch_prefix(60, "MANGOHUD"),
+                         "MANGOHUD=1 MANGOHUD_CONFIG=fps_limit=60,fps_limit_method=early,no_display")
+        self.assertEqual(smoothmod.launch_prefix(72), "DXVK_FRAME_RATE=72")
+        d = os.path.join(self.tmp, "layers")
+        self.assertIsNone(smoothmod.mangohud_env([d]))
+        write(os.path.join(d, "MangoHud.x86_64.json"),
+              '{"file_format_version": "1.0.0", "layer": {"name": "VK_LAYER_MANGOHUD_overlay_x86_64",'
+              ' "enable_environment": {"MANGOHUD": "1"}, "disable_environment": {"DISABLE_MANGOHUD": "1"}}}')
+        self.assertEqual(smoothmod.mangohud_env([d]), "MANGOHUD")
+
+    def test_auto_tdp_respects_frame_pacing(self):
+        auto = power.AutoTdp(5, 30, 60, start=15)
+        # Average holds 60 but frames arrive unevenly twice in a row: add power
+        self.assertEqual(auto.step(60.0, 100.0, low=60.0), 15)
+        self.assertEqual(auto.step(60.0, 101.0, low=40.0), 15)      # one hitch: wait
+        self.assertEqual(auto.state, "holding")
+        self.assertEqual(auto.step(60.0, 102.0, low=40.0), 16)      # second: raise
+        # Even frames: holds, then tries less power like before
+        t = 105.0
+        while auto.state != "lowering" and t < 200:
+            auto.step(60.0, t, low=59.0)
+            t += 1.0
+        self.assertEqual(auto.tdp, 15)
+        # Lower setting makes frames uneven: straight back, setting remembered
+        auto.step(60.0, t + 3, low=45.0)
+        self.assertEqual(auto.step(60.0, t + 4, low=45.0), 16)
+
+    def test_settings(self):
+        d = cfg.sanitize({"smooth": {"games": {
+            "10": {"fps": 60, "prefix": "DXVK_FRAME_RATE=60", "name": "G"},
+            "11": {"fps": 5, "prefix": "x"}, "12": {"fps": 60}, "x": {"fps": 60, "prefix": "y"}}}})
+        self.assertEqual(d["smooth"]["games"], {"10": {
+            "fps": 60, "prefix": "DXVK_FRAME_RATE=60", "added_command": False, "name": "G"}})
 
 
 class Config(unittest.TestCase):
@@ -1110,6 +1177,22 @@ class FakeSteamPad(object):
         return True
 
 
+class FakeGamescopeCtl(object):
+    def __init__(self):
+        self.sent = []
+        self.error = None
+        self.ok = True
+
+    def display(self):
+        return {"name": "eDP-1", "internal": True, "vrr": False, "rates": [60, 144]}
+
+    def set_refresh(self, fps, internal=True):
+        self.sent.append(fps)
+        if not self.ok:
+            self.error = "gamescope is not running (Gaming Mode only)"
+        return self.ok
+
+
 class FakeFps(object):
     def __init__(self):
         self.app = None
@@ -1121,6 +1204,9 @@ class FakeFps(object):
 
     def get(self):
         return self.value
+
+    def get_low(self):
+        return getattr(self, "low", None)
 
     def stop(self):
         self.app = None
@@ -1140,7 +1226,8 @@ class HubTests(TempDirCase):
         self.mods = {
             "limits": FakeLimits(), "fan": FakeFan(), "charge": FakeCharge(),
             "led": FakeLed(), "swap": FakeSwap(), "fps": FakeFps(),
-            "steam_pad": FakeSteamPad(),
+            "steam_pad": FakeSteamPad(), "gamescope": FakeGamescopeCtl(),
+            "mangohud_env": lambda: "MANGOHUD",
             "send": self._send, "sensors": lambda: {"temp": 55, "rpm": None},
             "battery_info": lambda: {"percent": 80, "status": "Charging"},
             "set_boost": lambda v: self.boost.append(v) or True,
@@ -1348,6 +1435,43 @@ class HubTests(TempDirCase):
         self.assertEqual(sorted(games), ["123", "42"])
         self.assertEqual(len(games["123"]["name"]), 120)
         self.assertEqual(games["42"], {"type": "xbox", "name": ""})
+
+    def test_smooth_mode(self):
+        gs, fps = self.mods["gamescope"], self.mods["fps"]
+        plan = self.hub.smooth_plan(60)
+        self.assertEqual(plan, {"prefix": smoothmod.launch_prefix(60, "MANGOHUD"),
+                                "limiter": "mangohud"})
+        self.hub.set_running_app(1091500, "Cyberpunk 2077")
+        self.assertEqual(gs.sent, [])                     # no cap: refresh untouched
+        out = self.hub.set_smooth_game(1091500, 60, "Cyberpunk 2077", plan["prefix"], True)
+        self.assertEqual(out["smooth"]["games"]["1091500"]["fps"], 60)
+        self.assertEqual(gs.sent, [60])
+        st = self.hub.status()["smooth"]
+        self.assertEqual((st["fps"], st["refresh"], st["active"]), (60, 60, True))
+        self.assertEqual(self.hub.status()["smooth"]["choices"], [30, 36, 48, 60, 72, 144])
+        # Auto TDP aims at the cap instead of the profile's target
+        self.hub.update({"power": {"enabled": True, "profiles": {"default": {
+            "auto": True, "target_fps": 45, "tdp": 25}}}})
+        self.assertEqual(self.hub._auto.target, 60.0)
+        # Re-sent every 10 s in case Steam changed it
+        self.hub._smooth_sent_at -= 11
+        self.hub._tick(time.monotonic())
+        self.assertEqual(gs.sent, [60, 60])
+        # Leaving the game hands the refresh rate back once
+        self.hub.set_running_app(None, "")
+        self.assertEqual(gs.sent, [60, 60, 0])
+        self.hub.set_running_app(7, "Other")
+        self.assertEqual(gs.sent, [60, 60, 0])
+        # Starting the game again restores it; removing the cap clears it
+        self.hub.set_running_app(1091500, "Cyberpunk 2077")
+        self.assertEqual(gs.sent[-1], 60)
+        self.hub.set_smooth_game(1091500, None)
+        self.assertEqual(gs.sent[-1], 0)
+        self.assertEqual(self.hub._auto.target, 45.0)
+        # A failure is reported
+        gs.ok = False
+        self.hub.set_smooth_game(1091500, 72, "Cyberpunk 2077", "DXVK_FRAME_RATE=72", False)
+        self.assertIn("Gaming Mode", self.hub.errors["smooth"])
 
     def test_manual_tdp_and_modes(self):
         limits = self.mods["limits"]

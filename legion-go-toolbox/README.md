@@ -93,6 +93,28 @@ curve, which is safe.
 - **Separate settings per game** stores a profile for the running game.
 - **CPU boost** off runs cooler for a small performance cost.
 
+### Smooth frame rate (per game)
+
+For console-like smoothness, frames must arrive at even intervals, not just
+average the right number. While a game runs, choose a cap in **Smooth frame
+rate**. The plugin then:
+
+- adds MangoHud's limiter with `fps_limit_method=early` to the game's launch
+  options (the Linux counterpart of RTSS's async / front-edge limiter; games
+  without MangoHud's Vulkan layer fall back to DXVK's limiter). Your own
+  launch options are kept, and switching off removes exactly what was added.
+- switches the screen to a refresh rate the cap divides evenly while the game
+  runs (60 fps: 60 Hz, 72 fps: 144 Hz), with gamescope's own limiter left
+  off, and hands the refresh rate back when the game closes.
+- makes Auto TDP aim at that cap and judge the slowest frames, not only the
+  average, so it never cuts power into stutter.
+
+Only caps that divide the screen's refresh rates are offered (Legion Go:
+30, 36, 48, 60, 72, 144). Restart the game after changing it. For the best
+result turn off Steam's Framerate limit and the game's own limiter and
+V-Sync for that game. Shader-compilation and loading stutter come from the
+game and cannot be removed this way.
+
 ### Fan
 
 Needs `acpi_call` (see above). The firmware keeps control of the fan and of
@@ -194,7 +216,7 @@ Press **Calibrate** once and leave the controllers alone for a few seconds.
 
 ## Scope and limits
 
-- Used on a Legion Go (83E1), and verified with simulated hardware (131
+- Used on a Legion Go (83E1), and verified with simulated hardware (137
   automated tests). Every module reads the device state back after a change
   and reports it when a change did not take.
 - Legion Go 2 and Legion Go S are recognised for the parts that are known to

@@ -16,6 +16,7 @@ from .battery import ChargeLimit, battery_info, on_external_power
 from .plumber import MenuSwap, SteamController
 from .power import CUSTOM, AutoTdp, FpsMonitor, PowerLimits, cpu_boost_state, set_cpu_boost
 from .powerled import PowerLed
+from . import smooth as smoothmod
 
 LEGION_GO = ("83E1",)
 LEGION_GO_2 = ("83N0", "83N1")
@@ -27,6 +28,7 @@ REASSERT_S = 10.0
 SWAP_CHECK_S = 5.0
 FAN_CHECK_S = 5.0
 POWER_SOURCE_CHECK_S = 2.0
+SMOOTH_REASSERT_S = 10.0
 RECONNECT_DELAY_S = 2.0
 RESUME_DELAY_S = 3.0
 
@@ -50,6 +52,8 @@ class Hub(object):
         self.swap = m.get("swap") or MenuSwap(
             state_file=(state_dir + "/inputplumber_base_profile") if state_dir else None)
         self.steam_pad = m.get("steam_pad") or SteamController()
+        self.gamescope = m.get("gamescope") or smoothmod.Gamescope()
+        self._mangohud_env = m.get("mangohud_env", smoothmod.mangohud_env)
         self.fps = m.get("fps") or FpsMonitor(logger=self._log)
         self._send = m.get("send") or controller.send
         self._sensors = m.get("sensors") or fan.read_sensors
@@ -78,6 +82,10 @@ class Hub(object):
         self._fan_applied = None
         self._on_ac = None
         self._power_source_checked = 0.0
+        self._smooth_applied = 0
+        self._smooth_sent_at = 0.0
+        self._display = None
+        self._display_at = -1e9
         self._reapply_controller_at = None
         self._reapply_all_at = None
         self._controller_seen = None
@@ -138,6 +146,10 @@ class Hub(object):
         caps = {}
         caps["power"] = cap(known and self.limits.available(),
                             not_legion if not known else self.limits.unavailable_reason())
+        caps["smooth"] = cap(bool(fps_probe.find_sockets()),
+                             "Smooth mode only works in Gaming Mode")
+        if caps["smooth"]["available"]:
+            self.display_info(refresh=True)
         caps["fps"] = cap(bool(fps_probe.find_sockets()) and FpsMonitor.find_python() is not None,
                           "Frame rates can only be measured in Gaming Mode")
         if not is_go:
@@ -212,6 +224,7 @@ class Hub(object):
         self._app_name = str(name or "")[:120]
         self._auto = None
         self._apply_power(force=True)
+        self._apply_smooth()
         self._refresh_fan()
         self._apply_steam_pad()
 
@@ -531,7 +544,7 @@ class Hub(object):
         with self._hw:
             if not power["enabled"]:
                 self._auto = None
-                self.fps.set_app(None)
+                self.fps.set_app(self._measure_app())
                 if was_enabled and self.limits.available():
                     # Hand the device back in a normal firmware mode.
                     choices = self.limits.profiles()
@@ -550,7 +563,7 @@ class Hub(object):
             self._power_applied_at = time.monotonic()
             if profile["mode"] != CUSTOM:
                 self._auto = None
-                self.fps.set_app(None)
+                self.fps.set_app(self._measure_app())
                 ok = self.limits.profile() == profile["mode"] or \
                     self.limits.set_profile(profile["mode"])
                 self._fan_check_soon()
@@ -560,15 +573,15 @@ class Hub(object):
             if profile["auto"]:
                 if self._auto is None or force:
                     start = self._auto.tdp if self._auto is not None else top
-                    self._auto = AutoTdp(low, top, profile["target_fps"], start=start)
+                    self._auto = AutoTdp(low, top, self._auto_target(profile), start=start)
                     self._auto_applied = None
                 else:
-                    self._auto.retarget(low, top, profile["target_fps"])
+                    self._auto.retarget(low, top, self._auto_target(profile))
                 self.fps.set_app(self._app)
                 want = self._auto.tdp if self._app is not None else top
             else:
                 self._auto = None
-                self.fps.set_app(None)
+                self.fps.set_app(self._measure_app())
                 want = top
             was_custom = self.limits.profile() == CUSTOM
             ok = self.limits.set_tdp(want)
@@ -579,6 +592,92 @@ class Hub(object):
             time.sleep(0.5)
             self._apply_fan()
 
+    # ---- smooth mode ---------------------------------------------------------
+    def smooth_for(self, app=None):
+        app = self._app if app is None else app
+        if app is None:
+            return None
+        return self.settings["smooth"]["games"].get(str(app))
+
+    def _measure_app(self):
+        """The game whose frame rate is measured: needed for Smooth mode's
+        readout even when Auto TDP is off."""
+        return self._app if self.smooth_for() else None
+
+    def _auto_target(self, profile):
+        """Auto TDP aims at the game's Smooth cap when it has one."""
+        entry = self.smooth_for()
+        return entry["fps"] if entry else profile["target_fps"]
+
+    def display_info(self, refresh=False):
+        now = time.monotonic()
+        if refresh or now - self._display_at > 30.0:
+            self._display_at = now
+            info = self.gamescope.display()
+            if info is not None:
+                self._display = info
+        return self._display
+
+    def smooth_plan(self, fps):
+        """Launch-option text for a cap, and which limiter it uses."""
+        env = self._mangohud_env() if callable(self._mangohud_env) else self._mangohud_env
+        return {"prefix": smoothmod.launch_prefix(fps, env),
+                "limiter": "mangohud" if env else "dxvk"}
+
+    def set_smooth_game(self, app_id, fps, name="", prefix="", added_command=False):
+        """Store a game's Smooth cap (fps None removes it). The frontend has
+        already changed the game's launch options accordingly."""
+        key = str(int(app_id))
+        with self._lock:
+            games = dict(self.settings["smooth"]["games"])
+            if fps is None:
+                games.pop(key, None)
+            else:
+                games[key] = {"fps": int(fps), "name": str(name or ""), "prefix": str(prefix),
+                              "added_command": bool(added_command)}
+            self.settings = cfg.sanitize(dict(self.settings, smooth={"games": games}))
+            self._save()
+        self._apply_smooth(force=True)
+        if self._auto is not None:
+            _, profile = self.active_profile()
+            low, top = self._tdp_bounds(profile)
+            self._auto.retarget(low, top, self._auto_target(profile))
+        return self.get_settings()
+
+    def _apply_smooth(self, force=False):
+        """Switch the refresh rate for the running game's cap, or hand the
+        refresh rate back when it has none."""
+        entry = self.smooth_for()
+        want = entry["fps"] if entry else 0
+        if want == self._smooth_applied and not force:
+            return
+        if want == 0 and self._smooth_applied == 0:
+            return
+        info = self.display_info()
+        internal = True if info is None else info["internal"]
+        if self._auto is None:
+            self.fps.set_app(self._measure_app())
+        ok = self.gamescope.set_refresh(want, internal)
+        self._smooth_sent_at = time.monotonic()
+        if ok:
+            self._smooth_applied = want
+        self._err("smooth", None if ok else self.gamescope.error)
+
+    def _smooth_status(self):
+        info = self._display
+        rates = info["rates"] if info else []
+        entry = self.smooth_for()
+        fps = entry["fps"] if entry else None
+        return {
+            "fps": fps,
+            "refresh": smoothmod.refresh_for(fps, rates) if fps and rates else None,
+            "rates": rates,
+            "vrr": bool(info and info["vrr"]),
+            "choices": smoothmod.fps_choices(rates),
+            "active": bool(self._smooth_applied),
+            "measured": {"fps": self.fps.get(), "low": self.fps.get_low()} if entry else None,
+        }
+
     def _auto_step(self, now):
         auto = self._auto
         if auto is None or not self.settings["power"]["enabled"]:
@@ -587,7 +686,7 @@ class Hub(object):
             want = auto.tdp_max
             auto.state = "no_game"
         else:
-            want = auto.step(self.fps.get(), now)
+            want = auto.step(self.fps.get(), now, self.fps.get_low())
         if want != self._auto_applied:
             with self._hw:
                 if self.limits.set_tdp(want):
@@ -640,6 +739,11 @@ class Hub(object):
         if now - self._fan_checked >= FAN_CHECK_S:
             self._fan_checked = now
             self._check_fan(now)
+
+        # Steam sends the same refresh request when it applies its own
+        # settings: keep the game's Smooth refresh rate in place.
+        if self._smooth_applied and now - self._smooth_sent_at >= SMOOTH_REASSERT_S:
+            self._apply_smooth(force=True)
 
         # Controllers that (re)appear get their lights and mapping again
         if self._controller_status is not None:
@@ -711,6 +815,7 @@ class Hub(object):
             "model": self.product,
             "errors": dict(self.errors),
             "app": {"id": self._app, "name": self._app_name},
+            "smooth": self._smooth_status(),
             "steam_controller": dict(zip(("type", "source"), self.steam_controller_for())),
             "power": {
                 "profile_key": key,
@@ -723,6 +828,8 @@ class Hub(object):
                     "active": auto is not None and s["power"]["enabled"],
                     "state": auto.state if auto is not None else None,
                     "fps": self.fps.get() if auto is not None else None,
+                    "low": self.fps.get_low() if auto is not None else None,
+                    "target": self._auto_target(profile) if auto is not None else None,
                     "probe_error": self.fps.error,
                 },
             },

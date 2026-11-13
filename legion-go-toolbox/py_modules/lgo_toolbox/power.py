@@ -259,8 +259,12 @@ class FpsMonitor(object):
         try:
             for raw in proc.stdout:
                 parts = raw.decode("ascii", "replace").split()
-                if len(parts) != 2:
+                if len(parts) not in (2, 3):
                     continue
+                try:
+                    low = None if len(parts) < 3 or parts[2] == "-" else float(parts[2])
+                except ValueError:
+                    low = None
                 try:
                     fps = None if parts[0] == "-" else float(parts[0])
                 except ValueError:
@@ -268,6 +272,7 @@ class FpsMonitor(object):
                 with self._lock:
                     if proc is self._proc:
                         self._fps = fps
+                        self._low = low
                         self._at = time.monotonic()
         except (OSError, ValueError):
             pass
@@ -279,12 +284,21 @@ class FpsMonitor(object):
                 return None
             return self._fps
 
+    def get_low(self):
+        """Frame rate of the slowest frame in the last half second (the
+        stutter measure), or None."""
+        with self._lock:
+            if self._fps is None or time.monotonic() - self._at > self.STALE_S:
+                return None
+            return getattr(self, "_low", None)
+
     def stop(self):
         proc = self._proc
         self._proc = None
         self._app = None
         with self._lock:
             self._fps = None
+            self._low = None
         if proc is not None:
             try:
                 proc.terminate()
@@ -352,7 +366,20 @@ class AutoTdp(object):
             self._good_since = None
         return self.tdp
 
-    def step(self, fps, now):
+    SMOOTH_RATIO = 0.85      # slowest frame at least this share of the target
+    ROUGH_WINDOWS = 2        # this many rough readings in a row add power
+
+    def _rough(self, low):
+        if low is None or self.target <= 0:
+            return False
+        return low / self.target < self.SMOOTH_RATIO
+
+    def step(self, fps, now, low=None):
+        """`low` is the frame rate of the slowest frame in the reading.
+        With it, a setting only counts as holding the target while frames
+        also arrive evenly, so power is never cut into stutter."""
+        rough = self._rough(low)
+        self._rough_run = (getattr(self, "_rough_run", 0) + 1) if rough else 0
         if fps is None:
             # No measurement (menu, loading, paused): keep what we have.
             self._good_since = None
@@ -363,7 +390,12 @@ class AutoTdp(object):
             return self.tdp
 
         ratio = fps / self.target if self.target > 0 else 1.0
-        if ratio < self.OK_RATIO:
+        if ratio >= self.OK_RATIO and rough and self._rough_run < self.ROUGH_WINDOWS:
+            # One uneven reading (a hitch): do not lower, do not react yet.
+            self._good_since = None
+            self.state = "holding"
+            return self.tdp
+        if ratio < self.OK_RATIO or rough:
             if self._probing_from is not None and self.tdp < self._probing_from:
                 # The level we just tried is too low: remember that and go
                 # straight back to the one that worked.
@@ -380,6 +412,7 @@ class AutoTdp(object):
                 self._good_since = None
                 return self.tdp
             self.state = "raising"
+            self._rough_run = 0
             return self._set(self.tdp + (3 if ratio < self.LOW_RATIO else 1), now)
 
         # Holding the target

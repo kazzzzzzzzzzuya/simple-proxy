@@ -4,6 +4,7 @@ import { FC } from "react";
 import { deletePowerProfile, PowerProfile } from "../backend";
 import { replaceSettings, update, useStore } from "../store";
 import { ErrorRow, Info, modeLabel, Unavailable } from "../ui";
+import { SmoothSection } from "./Smooth";
 
 const TARGETS = [30, 40, 45, 50, 60, 72, 90, 120, 144];
 
@@ -59,7 +60,10 @@ export const PowerTab: FC = () => {
     if (!p.enabled) return "Not managed by this plugin";
     const parts = [st.mode ? modeLabel(st.mode).replace(" (set the watts)", "") : "?"];
     if (st.mode === "custom" && st.tdp != null) parts.push(`${st.tdp} W`);
-    if (st.auto.active && st.auto.fps != null) parts.push(`${Math.round(st.auto.fps)} fps`);
+    if (st.auto.active && st.auto.fps != null) {
+      parts.push(`${Math.round(st.auto.fps)} fps`);
+      if (st.auto.low != null) parts.push(`slowest ${Math.round(st.auto.low)}`);
+    }
     return parts.join(" · ");
   };
 
@@ -135,7 +139,11 @@ export const PowerTab: FC = () => {
                   <PanelSectionRow>
                     <DropdownItem
                       label="Target frame rate"
-                      description="Best with the game or Steam frame limit set to the same number."
+                      description={
+                        status.smooth?.fps
+                          ? `Ignored while this game has Smooth mode: Auto TDP aims at its ${status.smooth.fps} fps cap.`
+                          : "Best with a frame limit at the same number (Smooth mode below sets one per game)."
+                      }
                       rgOptions={(TARGETS.includes(profile.target_fps)
                         ? TARGETS
                         : [...TARGETS, profile.target_fps].sort((a, b) => a - b)
@@ -177,6 +185,8 @@ export const PowerTab: FC = () => {
           )}
         </PanelSection>
       )}
+
+      <SmoothSection />
 
       {p.enabled && boost != null && (
         <PanelSection title="Processor">

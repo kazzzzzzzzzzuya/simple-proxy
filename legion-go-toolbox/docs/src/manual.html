@@ -31,7 +31,7 @@
 <!-- ============================== COVER ============================== -->
 <section class="cover">
   <div class="top">
-    <div class="kicker">User manual · Version 2.4</div>
+    <div class="kicker">User manual · Version 2.5</div>
     <h1>Legion Go Toolbox</h1>
     <div class="sub">The Lenovo Legion Go's hardware controls in the Steam Quick Access menu: power and automatic TDP, fan, lights, battery, buttons and gyro.</div>
     <div class="tabs"><span>Home</span><span>Power</span><span>Fan</span><span>Lights</span><span>Controls</span><span>Gyro</span></div>
@@ -47,7 +47,7 @@
     <li><span class="n">2</span><span><span class="t">Installing, updating and removing</span><br><span class="d">Decky developer mode, moving over from Legion Go Gyro</span></span></li>
     <li><span class="n">3</span><span><span class="t">Finding your way around</span><br><span class="d">Tabs, status lines, "not available" messages</span></span></li>
     <li><span class="n">4</span><span><span class="t">Home and battery</span><br><span class="d">Overview, 80 % charge limit, reset</span></span></li>
-    <li><span class="n">5</span><span><span class="t">Power</span><br><span class="d">Power modes, TDP, Auto TDP for a frame rate, per-game profiles</span></span></li>
+    <li><span class="n">5</span><span><span class="t">Power</span><br><span class="d">Power modes, TDP, Auto TDP for a frame rate, Smooth frame rate, per-game profiles</span></span></li>
     <li><span class="n">6</span><span><span class="t">Fan</span><br><span class="d">Custom curve, presets, full speed, safety limits</span></span></li>
     <li><span class="n">7</span><span><span class="t">Lights</span><br><span class="d">Stick lights, power-button light</span></span></li>
     <li><span class="n">8</span><span><span class="t">Controls</span><br><span class="d">Swapped menu buttons, back-button remapping, touchpad</span></span></li>
@@ -208,6 +208,24 @@
 
   <h2>Separate settings per game</h2>
   <p>With this on, the profile you edit belongs to the game that is running, and is used whenever that game runs. Games without their own profile use the default one. <b>Use the default for this game</b> deletes the game's profile.</p>
+
+  <h2 style="break-before: page">Smooth frame rate</h2>
+  <p>A steady average is not enough for a smooth picture: every frame has to arrive at the same interval. Uneven frames are what you see as jitter even at 60 fps. Smooth mode sets this up per game.</p>
+  <ol class="steps">
+    <li>Start the game and open the Power tab.</li>
+    <li>Under <b>Smooth frame rate</b> choose a cap, for example <i>60 fps · screen 60 Hz</i> or <i>72 fps · screen 144 Hz</i>.</li>
+    <li>Quit and start the game again - the cap goes into its launch options and applies from the next start.</li>
+    <li>In Steam's Performance menu set <b>Framerate limit</b> off for this game, and switch off the game's own frame limiter and V-Sync.</li>
+  </ol>
+  <h3>What it does</h3>
+  <table>
+    <tr><th>Part</th><th>How</th></tr>
+    <tr><td class="k">Even frame cap</td><td>MangoHud's limiter in <i>early</i> mode, the Linux counterpart of RTSS's async / front-edge limiter shown in frame-pacing guides. Games without MangoHud's Vulkan layer use DXVK's limiter (DirectX 9-11 games under Proton).</td></tr>
+    <tr><td class="k">Matching refresh rate</td><td>While the game runs the screen switches to a rate the cap divides evenly, so each frame stays on screen for the same time: 30 and 60 fps at 60 Hz; 36, 48, 72 and 144 fps at 144 Hz. gamescope's own limiter stays off, so limiters never stack. The refresh rate is handed back when the game closes.</td></tr>
+    <tr><td class="k">Auto TDP</td><td>Aims at the cap and judges the slowest frame of each half second, not only the average. It does not cut power while frames arrive unevenly, and adds power when they keep arriving late.</td></tr>
+  </table>
+  <p>The <b>Now</b> line shows the measured frame rate and the slowest frame; the closer the two, the smoother. Your own launch options are kept, and turning Smooth mode off removes exactly what it added. <b>Games with Smooth mode</b> lists every game with a cap.</p>
+  <div class="note"><b>Limits.</b> Stutter from shader compilation or loading comes from the game itself and cannot be removed by a limiter. Smooth mode works in Gaming Mode only.</div>
 
   <h2>CPU boost</h2>
   <p>Turning boost off keeps the processor at its base clock. It runs cooler and quieter and often costs only a few frames, especially together with a frame limit.</p>
@@ -455,7 +473,7 @@
   </table>
 
   <h2>Testing status</h2>
-  <p>Besides use on a Legion Go (83E1), every module is covered by automated tests with simulated hardware (131 tests), and every module reads the hardware back after a change and reports it when a change did not take.</p>
+  <p>Besides use on a Legion Go (83E1), every module is covered by automated tests with simulated hardware (137 tests), and every module reads the hardware back after a change and reports it when a change did not take.</p>
 
   <h2>Credits</h2>
   <p class="muted">Legion Go Toolbox is its own code, built on what these projects worked out about the hardware: Handheld Daemon and hwinfo (controller protocol, Lenovo firmware methods and fan minimum), Legion Center and LegionGoRemapper (remapping, fan table, charge limit), HueSync (power light), SimpleDeckyTDP (power limits), DeckyPlumber and InputPlumber (menu-button swap), Panel de Control (frame times from gamescope), decky-lsfg-vk (tabs) and Legion Go 2 Companion (overview layout).</p>

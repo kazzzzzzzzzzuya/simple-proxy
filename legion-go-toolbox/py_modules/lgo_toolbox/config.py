@@ -53,6 +53,8 @@ def defaults():
             "cpu_boost": None,
             "profiles": {"default": dict(POWER_PROFILE_DEFAULT)},
         },
+        # Smooth mode per game: {appid: {"fps", "name", "prefix", "added_command"}}
+        "smooth": {"games": {}},
         "controls": {
             "swap_menu": False,
             "swap_layout": SWAP_LAYOUTS[0],
@@ -189,6 +191,24 @@ def sanitize(data):
             for key, value in list(profiles.items())[:500]:
                 if key != "default" and isinstance(key, str) and key.isdigit() and len(key) <= 12:
                     d["profiles"][key] = sanitize_profile(value, d["profiles"]["default"])
+
+    sm = data.get("smooth")
+    if isinstance(sm, dict) and isinstance(sm.get("games"), dict):
+        for key, v in list(sm["games"].items())[:500]:
+            if not (isinstance(key, str) and key.isdigit() and len(key) <= 12 and isinstance(v, dict)):
+                continue
+            fps = v.get("fps")
+            prefix = v.get("prefix")
+            if isinstance(fps, bool) or not isinstance(fps, int) or not 15 <= fps <= 240:
+                continue
+            if not isinstance(prefix, str) or not prefix or len(prefix) > 200:
+                continue
+            name = v.get("name")
+            out["smooth"]["games"][key] = {
+                "fps": fps, "prefix": prefix,
+                "added_command": _flag(v.get("added_command"), False),
+                "name": name[:120] if isinstance(name, str) else "",
+            }
 
     c = data.get("controls")
     if isinstance(c, dict):
