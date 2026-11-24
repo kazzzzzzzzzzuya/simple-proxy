@@ -2,7 +2,7 @@
 """Build a static Stremio/Nuvio add-on with ranked Top 10 rows.
 
 Writes two add-ons into OUT_DIR:
-  netflix/manifest.json  wide cards: big outlined rank number beside the poster
+  netflix/manifest.json  square tiles: outlined rank number tucked behind the poster
   apple/manifest.json    tall posters with a white rank number in the corner
 
 Data: TMDB trending (today) when TMDB_API_KEY is set, otherwise Cinemeta's
@@ -25,7 +25,6 @@ BASE_URL = os.environ.get("BASE_URL", "").rstrip("/")
 TMDB_KEY = os.environ.get("TMDB_API_KEY", "").strip()
 TOP = 10
 TYPES = ("movie", "series")
-LABEL = {"movie": "Movies", "series": "Series"}
 UA = {"User-Agent": "top10-addon/1.0"}
 
 
@@ -166,37 +165,30 @@ def draw_text_box(layer, text, f, left, bottom, **kw):
     return r - l, b - t
 
 
-def netflix_card(rank, poster, backdrop):
-    """16:9 card: outlined number on the left, poster on the right."""
-    W, H = 960, 540
-    card = Image.new("RGBA", (W, H), (20, 20, 20, 255))
-    if backdrop:
-        bg = cover(backdrop, W, H).filter(ImageFilter.GaussianBlur(18))
-        card.alpha_composite(bg)
-        card.alpha_composite(Image.new("RGBA", (W, H), (0, 0, 0, 165)))
-    shade = Image.new("RGBA", (W, H), (0, 0, 0, 255))
-    shade.putalpha(gradient(W, H, [(0, 235), (0.55, 140), (1, 40)], horizontal=True))
-    card.alpha_composite(shade)
+def netflix_card(rank, poster, W, H):
+    """Netflix Top 10 tile on black: outlined number tucked behind the poster.
 
-    pw, ph = 344, 516  # poster, 2:3
-    px, py = W - pw - 26, (H - ph) // 2
+    The number + poster group is H wide (square); on a wider canvas it is centred.
+    """
+    card = Image.new("RGBA", (W, H), (0, 0, 0, 255))
+    gx = (W - H) // 2  # group left edge
+    pw = round(H * 0.62)
+    px = gx + H - pw
     text = str(rank)
-    stroke = 7
-    num_right = px + 34  # the number tucks slightly under the poster
-    f = fit_font(text, num_right - 40 - 2 * stroke, int(H * 0.86))
+    stroke = max(4, H // 50)
+    tuck = round(H * 0.2)  # how far the number runs under the poster
+    box = (px - gx + tuck - stroke * 2 - round(H * 0.02), int(H * 0.80))
+    # one size for all single digits so 1-9 line up; 10 gets its own fit
+    f = fit_font(text, *box) if len(text) > 1 else min((fit_font(d, *box) for d in "0123456789"), key=lambda x: x.size)
+    l, t, r, b = f.getbbox(text)
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    tw, th = (lambda b: (b[2] - b[0], b[3] - b[1]))(f.getbbox(text))
-    draw_text_box(layer, text, f, num_right - stroke - tw, H - (H - th) // 2 + 6,
-                  fill=(12, 12, 12, 255), stroke_width=stroke, stroke_fill=(178, 178, 178, 255))
+    draw_text_box(layer, text, f, px + min(tuck, (r - l) // 4) - stroke - (r - l), H - round(H * 0.03) - stroke,
+                  fill=(10, 10, 10, 255), stroke_width=stroke, stroke_fill=(175, 175, 175, 255))
     card.alpha_composite(layer)
-
-    sh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(sh).rounded_rectangle((px - 4, py + 6, px + pw + 4, py + ph + 10), 14, fill=(0, 0, 0, 190))
-    card.alpha_composite(sh.filter(ImageFilter.GaussianBlur(12)))
-    p = cover(poster, pw, ph)
-    mask = Image.new("L", (pw, ph), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, pw - 1, ph - 1), 12, fill=255)
-    card.paste(p, (px, py), mask)
+    edge = Image.new("RGBA", (round(H * 0.08), H), (0, 0, 0, 255))
+    edge.putalpha(gradient(edge.width, H, [(0, 0), (1, 200)], horizontal=True))
+    card.alpha_composite(edge, (px - edge.width, 0))
+    card.alpha_composite(cover(poster, pw, H), (px, 0))
     return card
 
 
@@ -250,13 +242,13 @@ def manifest(style):
     nice = {"netflix": "Netflix style", "apple": "Apple TV style"}[style]
     return {
         "id": f"community.top10.ranked.{style}",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "name": f"Top 10 ({nice})",
         "description": "Today's Top 10 movies and series with big rank numbers. Updated daily.",
         "logo": f"{BASE_URL}/logo.png",
         "resources": ["catalog"],
         "types": list(TYPES),
-        "catalogs": [{"type": t, "id": f"top10-{style}", "name": f"Top 10 {LABEL[t]}"} for t in TYPES],
+        "catalogs": [{"type": t, "id": f"top10-{style}", "name": "Top 10"} for t in TYPES],
         "behaviorHints": {"configurable": False},
     }
 
@@ -289,7 +281,8 @@ def build(out, fetch_list):
             logo = get_image(it.get("logo"))
             rank += 1
             name = f"{kind}-{rank:02d}-{it['id']}-{stamp}.jpg"
-            save(netflix_card(rank, poster, backdrop), os.path.join(out, "img", "n", name))
+            save(netflix_card(rank, poster, 600, 600), os.path.join(out, "img", "t", name))
+            save(netflix_card(rank, poster, 960, 540), os.path.join(out, "img", "tw", name))
             save(apple_poster(rank, poster), os.path.join(out, "img", "a", name))
             save(apple_wide(rank, backdrop, poster, logo, it["name"]), os.path.join(out, "img", "w", name))
             base = {k: it[k] for k in ("id", "type", "name", "description", "releaseInfo", "imdbRating", "genres") if it.get(k)}
@@ -298,8 +291,8 @@ def build(out, fetch_list):
                 base["background"] = clean_bg  # hero and details keep the clean artwork
             if it.get("logo") and logo:
                 base["logo"] = it["logo"]
-            n_img = f"{BASE_URL}/img/n/{name}"
-            rows["netflix"].append({**base, "poster": n_img, "posterShape": "landscape", "landscapePoster": n_img})
+            rows["netflix"].append({**base, "poster": f"{BASE_URL}/img/t/{name}", "posterShape": "square",
+                                    "landscapePoster": f"{BASE_URL}/img/tw/{name}"})
             rows["apple"].append({**base, "poster": f"{BASE_URL}/img/a/{name}", "posterShape": "poster",
                                   "landscapePoster": f"{BASE_URL}/img/w/{name}"})
             print(f"{kind} #{rank} {it['name']} ({it['id']})")

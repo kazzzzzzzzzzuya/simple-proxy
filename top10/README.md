@@ -10,7 +10,7 @@ In Nuvio: Settings → Addons → paste one URL → Install.
 
 | Style | URL |
 | --- | --- |
-| Netflix: outlined number beside the poster, wide cards | `https://raw.githubusercontent.com/kazzzzzzzzzzuya/simple-proxy/top10-addon/netflix/manifest.json` |
+| Netflix: outlined number tucked behind the poster, compact square tiles | `https://raw.githubusercontent.com/kazzzzzzzzzzuya/simple-proxy/top10-addon/netflix/manifest.json` |
 | Apple TV: white number in the poster's corner | `https://raw.githubusercontent.com/kazzzzzzzzzzuya/simple-proxy/top10-addon/apple/manifest.json` |
 
 Then in Settings → Home Screen (catalogs), move the Top 10 rows to where you want them.
