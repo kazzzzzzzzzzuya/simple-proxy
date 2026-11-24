@@ -41,6 +41,22 @@ jobs:
         env:
           TOKEN: ${{ github.token }}
         run: |
+          # Keep the last two days of images: cached catalogs (GitHub's CDN, Nuvio) still point at them.
+          old="$RUNNER_TEMP/old"
+          mkdir -p "$old"
+          if git fetch -q --depth 1 origin top10-addon; then
+            git archive FETCH_HEAD img | tar -x -C "$old" || true
+          fi
+          cutoff="$(date -u -d '2 days ago' +%Y%m%d)"
+          if [ -d "$old/img" ]; then
+            (cd "$old" && find img -name '*.jpg') | while read -r f; do
+              d="${f##*-}"; d="${d%.jpg}"
+              if [[ "$d" =~ ^[0-9]{8}$ ]] && [ "$d" -ge "$cutoff" ] && [ ! -e "$RUNNER_TEMP/addon/$f" ]; then
+                mkdir -p "$RUNNER_TEMP/addon/$(dirname "$f")"
+                cp "$old/$f" "$RUNNER_TEMP/addon/$f"
+              fi
+            done
+          fi
           cd "$RUNNER_TEMP/addon"
           cp "$GITHUB_WORKSPACE/top10/fonts/OFL.txt" FONT-LICENSE.txt
           git init -q -b top10-addon
