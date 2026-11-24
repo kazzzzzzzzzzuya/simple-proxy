@@ -1,0 +1,68 @@
+name: Top 10 add-on
+
+# Builds the ranked Top 10 add-on in top10/ and publishes it to the
+# top10-addon branch, which is served as static files by raw.githubusercontent.com.
+on:
+  schedule:
+    - cron: "23 21 * * *" # daily, 05:23 in UTC+8
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths: ["top10/**", ".github/workflows/top10.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: top10-addon
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Pillow
+        run: pip install pillow==11.0.0
+
+      - name: Build add-on
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/top10-addon
+        run: python top10/build.py "$RUNNER_TEMP/addon"
+
+      - name: Publish to the top10-addon branch
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          # Keep the last two days of images: cached catalogs (GitHub's CDN, Nuvio) still point at them.
+          old="$RUNNER_TEMP/old"
+          mkdir -p "$old"
+          if git fetch -q --depth 1 origin top10-addon; then
+            git archive FETCH_HEAD img | tar -x -C "$old" || true
+          fi
+          cutoff="$(date -u -d '2 days ago' +%Y%m%d)"
+          if [ -d "$old/img" ]; then
+            (cd "$old" && find img -name '*.jpg') | while read -r f; do
+              d="${f##*-}"; d="${d%.jpg}"
+              if [[ "$d" =~ ^[0-9]{8}$ ]] && [ "$d" -ge "$cutoff" ] && [ ! -e "$RUNNER_TEMP/addon/$f" ]; then
+                mkdir -p "$RUNNER_TEMP/addon/$(dirname "$f")"
+                cp "$old/$f" "$RUNNER_TEMP/addon/$f"
+              fi
+            done
+          fi
+          cd "$RUNNER_TEMP/addon"
+          cp "$GITHUB_WORKSPACE/top10/fonts/OFL.txt" FONT-LICENSE-Inter.txt
+          cp "$GITHUB_WORKSPACE/top10/fonts/OFL-LeagueGothic.txt" FONT-LICENSE-LeagueGothic.txt
+          git init -q -b top10-addon
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "Top 10 add-on $(date -u +%F)"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" top10-addon
