@@ -7,7 +7,7 @@ on:
     - cron: "23 21 * * *" # daily, 05:23 in UTC+8
   workflow_dispatch:
   push:
-    branches: [dev, claude/nice-euler-j3dtkd]
+    branches: [dev]
     paths: ["top10/**", ".github/workflows/top10.yml"]
 
 permissions:
