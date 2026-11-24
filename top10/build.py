@@ -174,17 +174,26 @@ def netflix_card(rank, poster, W, H):
     gx = (W - H) // 2  # group left edge
     pw = round(H * 0.62)
     px = gx + H - pw
-    text = str(rank)
     stroke = max(4, H // 50)
-    tuck = round(H * 0.2)  # how far the number runs under the poster
-    box = (px - gx + tuck - stroke * 2 - round(H * 0.02), int(H * 0.80))
-    # one size for all single digits so 1-9 line up; 10 gets its own fit
-    f = fit_font(text, *box) if len(text) > 1 else min((fit_font(d, *box) for d in "0123456789"), key=lambda x: x.size)
+    tuck = round(H * 0.2)  # how far the number may run under the poster
+    # Number exactly as tall as the poster; squeezed sideways only if it would not fit.
+    text = str(rank)
+    th = H - 2 * stroke
+    probe = font(400)
+    l, t, r, b = probe.getbbox(text)
+    f = font(round(400 * th / (b - t)))
     l, t, r, b = f.getbbox(text)
-    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    draw_text_box(layer, text, f, px + min(tuck, (r - l) // 4) - stroke - (r - l), H - round(H * 0.03) - stroke,
-                  fill=(10, 10, 10, 255), stroke_width=stroke, stroke_fill=(175, 175, 175, 255))
-    card.alpha_composite(layer)
+    glyph = Image.new("L", (r - l, b - t), 0)
+    ImageDraw.Draw(glyph).text((-l, -t), text, font=f, fill=255)
+    room = px - gx + tuck - 2 * stroke - round(H * 0.06)  # clear of rounded corners
+    if glyph.width > room:
+        glyph = glyph.resize((room, th), Image.LANCZOS)
+    gw = glyph.width
+    mask = Image.new("L", (W, H), 0)
+    mask.paste(glyph, (px + min(tuck, gw // 4) - stroke - gw, stroke))
+    outline = mask.filter(ImageFilter.MaxFilter(2 * stroke + 1))
+    card.paste((175, 175, 175, 255), (0, 0), outline)
+    card.paste((10, 10, 10, 255), (0, 0), mask)
     edge = Image.new("RGBA", (round(H * 0.08), H), (0, 0, 0, 255))
     edge.putalpha(gradient(edge.width, H, [(0, 0), (1, 200)], horizontal=True))
     card.alpha_composite(edge, (px - edge.width, 0))
@@ -242,7 +251,7 @@ def manifest(style):
     nice = {"netflix": "Netflix style", "apple": "Apple TV style"}[style]
     return {
         "id": f"community.top10.ranked.{style}",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "name": f"Top 10 ({nice})",
         "description": "Today's Top 10 movies and series with big rank numbers. Updated daily.",
         "logo": f"{BASE_URL}/logo.png",
@@ -281,8 +290,8 @@ def build(out, fetch_list):
             logo = get_image(it.get("logo"))
             rank += 1
             name = f"{kind}-{rank:02d}-{it['id']}-{stamp}.jpg"
-            save(netflix_card(rank, poster, 600, 600), os.path.join(out, "img", "t", name))
-            save(netflix_card(rank, poster, 960, 540), os.path.join(out, "img", "tw", name))
+            save(netflix_card(rank, poster, 600, 600), os.path.join(out, "img", "t2", name))
+            save(netflix_card(rank, poster, 960, 540), os.path.join(out, "img", "t2w", name))
             save(apple_poster(rank, poster), os.path.join(out, "img", "a", name))
             save(apple_wide(rank, backdrop, poster, logo, it["name"]), os.path.join(out, "img", "w", name))
             base = {k: it[k] for k in ("id", "type", "name", "description", "releaseInfo", "imdbRating", "genres") if it.get(k)}
@@ -291,8 +300,8 @@ def build(out, fetch_list):
                 base["background"] = clean_bg  # hero and details keep the clean artwork
             if it.get("logo") and logo:
                 base["logo"] = it["logo"]
-            rows["netflix"].append({**base, "poster": f"{BASE_URL}/img/t/{name}", "posterShape": "square",
-                                    "landscapePoster": f"{BASE_URL}/img/tw/{name}"})
+            rows["netflix"].append({**base, "poster": f"{BASE_URL}/img/t2/{name}", "posterShape": "square",
+                                    "landscapePoster": f"{BASE_URL}/img/t2w/{name}"})
             rows["apple"].append({**base, "poster": f"{BASE_URL}/img/a/{name}", "posterShape": "poster",
                                   "landscapePoster": f"{BASE_URL}/img/w/{name}"})
             print(f"{kind} #{rank} {it['name']} ({it['id']})")
