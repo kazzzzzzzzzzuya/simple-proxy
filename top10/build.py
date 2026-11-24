@@ -190,7 +190,8 @@ def netflix_card(rank, poster, W, H):
         glyph = glyph.resize((room, th), Image.LANCZOS)
     gw = glyph.width
     mask = Image.new("L", (W, H), 0)
-    mask.paste(glyph, (px + min(tuck, gw // 4) - stroke - gw, stroke))
+    left_min = gx + stroke + round(H * 0.06)  # clear of the card's rounded corners
+    mask.paste(glyph, (max(left_min, px + min(tuck, gw // 4) - stroke - gw), stroke))
     outline = mask.filter(ImageFilter.MaxFilter(2 * stroke + 1))
     card.paste((175, 175, 175, 255), (0, 0), outline)
     card.paste((10, 10, 10, 255), (0, 0), mask)
@@ -251,7 +252,7 @@ def manifest(style):
     nice = {"netflix": "Netflix style", "apple": "Apple TV style"}[style]
     return {
         "id": f"community.top10.ranked.{style}",
-        "version": "1.2.0",
+        "version": "1.2.1",
         "name": f"Top 10 ({nice})",
         "description": "Today's Top 10 movies and series with big rank numbers. Updated daily.",
         "logo": f"{BASE_URL}/logo.png",
@@ -290,8 +291,8 @@ def build(out, fetch_list):
             logo = get_image(it.get("logo"))
             rank += 1
             name = f"{kind}-{rank:02d}-{it['id']}-{stamp}.jpg"
-            save(netflix_card(rank, poster, 600, 600), os.path.join(out, "img", "t2", name))
-            save(netflix_card(rank, poster, 960, 540), os.path.join(out, "img", "t2w", name))
+            save(netflix_card(rank, poster, 600, 600), os.path.join(out, "img", "t3", name))
+            save(netflix_card(rank, poster, 960, 540), os.path.join(out, "img", "t3w", name))
             save(apple_poster(rank, poster), os.path.join(out, "img", "a", name))
             save(apple_wide(rank, backdrop, poster, logo, it["name"]), os.path.join(out, "img", "w", name))
             base = {k: it[k] for k in ("id", "type", "name", "description", "releaseInfo", "imdbRating", "genres") if it.get(k)}
@@ -300,8 +301,8 @@ def build(out, fetch_list):
                 base["background"] = clean_bg  # hero and details keep the clean artwork
             if it.get("logo") and logo:
                 base["logo"] = it["logo"]
-            rows["netflix"].append({**base, "poster": f"{BASE_URL}/img/t2/{name}", "posterShape": "square",
-                                    "landscapePoster": f"{BASE_URL}/img/t2w/{name}"})
+            rows["netflix"].append({**base, "poster": f"{BASE_URL}/img/t3/{name}", "posterShape": "square",
+                                    "landscapePoster": f"{BASE_URL}/img/t3w/{name}"})
             rows["apple"].append({**base, "poster": f"{BASE_URL}/img/a/{name}", "posterShape": "poster",
                                   "landscapePoster": f"{BASE_URL}/img/w/{name}"})
             print(f"{kind} #{rank} {it['name']} ({it['id']})")
