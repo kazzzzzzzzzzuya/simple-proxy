@@ -58,7 +58,8 @@ jobs:
             done
           fi
           cd "$RUNNER_TEMP/addon"
-          cp "$GITHUB_WORKSPACE/top10/fonts/OFL.txt" FONT-LICENSE.txt
+          cp "$GITHUB_WORKSPACE/top10/fonts/OFL.txt" FONT-LICENSE-Inter.txt
+          cp "$GITHUB_WORKSPACE/top10/fonts/OFL-LeagueGothic.txt" FONT-LICENSE-LeagueGothic.txt
           git init -q -b top10-addon
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

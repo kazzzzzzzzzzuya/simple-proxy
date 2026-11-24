@@ -30,4 +30,4 @@ Then in Settings → Home Screen (catalogs), move the Top 10 rows to where you w
 Run it now: Actions → Top 10 add-on → Run workflow. Local build: `pip install pillow` then
 `BASE_URL=http://localhost:8000 python top10/build.py out`.
 
-Font: Inter Display Black, SIL Open Font License 1.1 (`fonts/OFL.txt`).
+Fonts: Inter Display Black (`fonts/OFL.txt`) and League Gothic (`fonts/OFL-LeagueGothic.txt`), both SIL Open Font License 1.1.

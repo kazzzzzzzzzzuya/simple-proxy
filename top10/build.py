@@ -21,6 +21,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FONT = os.path.join(HERE, "fonts", "InterDisplay-Black.otf")
+NUM_FONT = os.path.join(HERE, "fonts", "LeagueGothic.ttf")
 BASE_URL = os.environ.get("BASE_URL", "").rstrip("/")
 TMDB_KEY = os.environ.get("TMDB_API_KEY", "").strip()
 TOP = 10
@@ -166,37 +167,44 @@ def draw_text_box(layer, text, f, left, bottom, **kw):
 
 
 def netflix_card(rank, poster, W, H):
-    """Netflix Top 10 tile on black: outlined number tucked behind the poster.
+    """Netflix Top 10 tile on black: full uncropped 2:3 poster on the right and an
+    outlined number exactly as tall as the poster, partly tucked behind it.
 
     The number + poster group is H wide (square); on a wider canvas it is centred.
     """
     card = Image.new("RGBA", (W, H), (0, 0, 0, 255))
     gx = (W - H) // 2  # group left edge
-    pw = round(H * 0.62)
+    pw = round(H * 2 / 3)
     px = gx + H - pw
-    stroke = max(4, H // 50)
-    tuck = round(H * 0.2)  # how far the number may run under the poster
-    # Number exactly as tall as the poster; squeezed sideways only if it would not fit.
-    text = str(rank)
+    stroke = max(3, H // 90)
+    tuck = 0.12  # share of the number that may sit behind the poster
+    # Glyphs share one size (digit height = tile height); "10" is set tight.
     th = H - 2 * stroke
-    probe = font(400)
-    l, t, r, b = probe.getbbox(text)
-    f = font(round(400 * th / (b - t)))
-    l, t, r, b = f.getbbox(text)
-    glyph = Image.new("L", (r - l, b - t), 0)
-    ImageDraw.Draw(glyph).text((-l, -t), text, font=f, fill=255)
-    room = px - gx + tuck - 2 * stroke - round(H * 0.06)  # clear of rounded corners
-    if glyph.width > room:
-        glyph = glyph.resize((room, th), Image.LANCZOS)
-    gw = glyph.width
+    probe = ImageFont.truetype(NUM_FONT, 400)
+    l, t, r, b = probe.getbbox("0123456789")
+    f = ImageFont.truetype(NUM_FONT, round(400 * th / (b - t)))
+    _, top, _, bottom = f.getbbox("0123456789")
+    parts = []
+    for ch in str(rank):
+        l, _, r, _ = f.getbbox(ch)
+        g = Image.new("L", (r - l, bottom - top), 0)
+        ImageDraw.Draw(g).text((-l, -top), ch, font=f, fill=255)
+        parts.append(g)
+    gap = -round(H * 0.03)
+    glyph = Image.new("L", (sum(p.width for p in parts) + gap * (len(parts) - 1), bottom - top), 0)
+    x = 0
+    for p in parts:
+        glyph.paste(255, (x, 0), p)
+        x += p.width + gap
+    room = px - gx - 2 * stroke + round(glyph.width * tuck)
+    if glyph.width > room:  # only "10" needs this, and only slightly
+        glyph = glyph.resize((room, glyph.height), Image.LANCZOS)
     mask = Image.new("L", (W, H), 0)
-    left_min = gx + stroke + round(H * 0.06)  # clear of the card's rounded corners
-    mask.paste(glyph, (max(left_min, px + min(tuck, gw // 4) - stroke - gw), stroke))
-    outline = mask.filter(ImageFilter.MaxFilter(2 * stroke + 1))
-    card.paste((175, 175, 175, 255), (0, 0), outline)
-    card.paste((10, 10, 10, 255), (0, 0), mask)
-    edge = Image.new("RGBA", (round(H * 0.08), H), (0, 0, 0, 255))
-    edge.putalpha(gradient(edge.width, H, [(0, 0), (1, 200)], horizontal=True))
+    mask.paste(glyph, (max(gx + stroke, px - stroke - glyph.width + round(glyph.width * tuck)), stroke))
+    card.paste((150, 150, 150, 255), (0, 0), mask.filter(ImageFilter.MaxFilter(2 * stroke + 1)))
+    card.paste((0, 0, 0, 255), (0, 0), mask)
+    edge = Image.new("RGBA", (round(H * 0.06), H), (0, 0, 0, 255))
+    edge.putalpha(gradient(edge.width, H, [(0, 0), (1, 170)], horizontal=True))
     card.alpha_composite(edge, (px - edge.width, 0))
     card.alpha_composite(cover(poster, pw, H), (px, 0))
     return card
@@ -252,7 +260,7 @@ def manifest(style):
     nice = {"netflix": "Netflix style", "apple": "Apple TV style"}[style]
     return {
         "id": f"community.top10.ranked.{style}",
-        "version": "1.2.1",
+        "version": "1.3.0",
         "name": f"Top 10 ({nice})",
         "description": "Today's Top 10 movies and series with big rank numbers. Updated daily.",
         "logo": f"{BASE_URL}/logo.png",
@@ -291,8 +299,8 @@ def build(out, fetch_list):
             logo = get_image(it.get("logo"))
             rank += 1
             name = f"{kind}-{rank:02d}-{it['id']}-{stamp}.jpg"
-            save(netflix_card(rank, poster, 600, 600), os.path.join(out, "img", "t3", name))
-            save(netflix_card(rank, poster, 960, 540), os.path.join(out, "img", "t3w", name))
+            save(netflix_card(rank, poster, 600, 600), os.path.join(out, "img", "t4", name))
+            save(netflix_card(rank, poster, 960, 540), os.path.join(out, "img", "t4w", name))
             save(apple_poster(rank, poster), os.path.join(out, "img", "a", name))
             save(apple_wide(rank, backdrop, poster, logo, it["name"]), os.path.join(out, "img", "w", name))
             base = {k: it[k] for k in ("id", "type", "name", "description", "releaseInfo", "imdbRating", "genres") if it.get(k)}
@@ -301,8 +309,8 @@ def build(out, fetch_list):
                 base["background"] = clean_bg  # hero and details keep the clean artwork
             if it.get("logo") and logo:
                 base["logo"] = it["logo"]
-            rows["netflix"].append({**base, "poster": f"{BASE_URL}/img/t3/{name}", "posterShape": "square",
-                                    "landscapePoster": f"{BASE_URL}/img/t3w/{name}"})
+            rows["netflix"].append({**base, "poster": f"{BASE_URL}/img/t4/{name}", "posterShape": "square",
+                                    "landscapePoster": f"{BASE_URL}/img/t4w/{name}"})
             rows["apple"].append({**base, "poster": f"{BASE_URL}/img/a/{name}", "posterShape": "poster",
                                   "landscapePoster": f"{BASE_URL}/img/w/{name}"})
             print(f"{kind} #{rank} {it['name']} ({it['id']})")
