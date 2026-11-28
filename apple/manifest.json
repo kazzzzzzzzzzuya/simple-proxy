@@ -1,0 +1,29 @@
+{
+ "id": "community.top10.ranked.apple",
+ "version": "1.3.0",
+ "name": "Top 10 (Apple TV style)",
+ "description": "Today's Top 10 movies and series with big rank numbers. Updated daily.",
+ "logo": "https://raw.githubusercontent.com/kazzzzzzzzzzuya/simple-proxy/top10-addon/logo.png",
+ "resources": [
+  "catalog"
+ ],
+ "types": [
+  "movie",
+  "series"
+ ],
+ "catalogs": [
+  {
+   "type": "movie",
+   "id": "top10-apple",
+   "name": "Top 10"
+  },
+  {
+   "type": "series",
+   "id": "top10-apple",
+   "name": "Top 10"
+  }
+ ],
+ "behaviorHints": {
+  "configurable": false
+ }
+}
